@@ -1,0 +1,77 @@
+services:
+  # VPN gateway. Official Gluetun image (upstream: github.com/passteque/gluetun,
+  # also published as qmcgaw/gluetun and ghcr.io/qdm12/gluetun).
+  # Negotiates the ProtonVPN NAT-PMP forwarded port and publishes it on its
+  # control server (:8001, loopback-only inside the shared network namespace).
+  gluetun:
+    image: qmcgaw/gluetun:v3.41.3
+    container_name: miniace-gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WG_PRIVATE_KEY}
+      - SERVER_COUNTRIES=${PROTON_COUNTRIES:-Netherlands}
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+      - PORT_FORWARD_ONLY=on
+      - HTTP_CONTROL_SERVER_ADDRESS=:8001
+      - HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE={"auth":"none"}
+      - HEALTH_TARGET_ADDRESSES=cloudflare.com:80
+      - FIREWALL_INPUT_PORTS=6878,8080
+      - FIREWALL_OUTBOUND_SUBNETS=${DOCKER_SUBNET:-172.30.0.0/24}
+      - TZ=${TZ:-Europe/Madrid}
+    volumes:
+      - ./data/gluetun:/tmp/gluetun
+    ports:
+      - "${ACESTREAM_HTTP_PORT:-6878}:6878"
+      - "${PLAYLISTS_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  # AceStream engine + Gluetun port supervision + IPNS playlist sync.
+  # The only custom image in the stack; shares gluetun's network namespace
+  # so the engine binds exactly the P2P port announced by ProtonVPN.
+  acestream:
+    build:
+      context: ./images/acestream
+    image: ghcr.io/biquinisdonrodrigo/miniace:latest
+    container_name: miniace-acestream
+    init: true
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - TZ=${TZ:-Europe/Madrid}
+      - PUBLIC_PORT=${ACESTREAM_HTTP_PORT:-6878}
+      - IPFS_GATEWAY=${IPFS_GATEWAY:-http://kubo:48080}
+      - IPFS_FALLBACK_GATEWAYS=${IPFS_FALLBACK_GATEWAYS:-https://ipfs.filebase.io,https://ipfs.io,https://dweb.link,https://w3s.link}
+      - SYNC_INTERVAL=${SYNC_INTERVAL:-3600}
+      - ACESTREAM_CACHE_LIMIT_GB=${ACESTREAM_CACHE_LIMIT_GB:-5}
+      - PORT_WATCH_INTERVAL_S=${PORT_WATCH_INTERVAL_S:-45}
+    volumes:
+      - ./data:/data
+      - ./data/gluetun:/tmp/gluetun
+      - ./data/acestream:/acestream
+    restart: unless-stopped
+
+  # Local IPFS node. Official Kubo image; resolves the IPNS playlists.
+  # The only addition is a one-line /container-init.d script that moves the
+  # HTTP gateway to 0.0.0.0:48080 so the acestream container can reach it.
+  kubo:
+    image: ipfs/kubo:v0.43.0
+    container_name: miniace-kubo
+    environment:
+      - IPFS_PROFILE=server
+    volumes:
+      - ./data/ipfs:/data/ipfs
+      - ./kubo/001-gateway-port.sh:/container-init.d/001-gateway-port.sh:ro
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${DOCKER_SUBNET:-172.30.0.0/24}

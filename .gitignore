@@ -1,0 +1,9 @@
+# Environment
+.env
+
+# Data directory: sources.json, generated playlists and runtime state
+data/*
+
+# Python
+__pycache__/
+*.pyc

@@ -1,0 +1,10 @@
+# Engine Python dependencies, mirrored from the requirements.txt shipped inside
+# the official AceStream tarball, pinned to versions known to install cleanly
+# (wheels only) on python:3.10-slim.
+pycryptodome==3.23.0
+lxml==6.1.1
+apsw==3.53.2.0
+psutil==7.2.2
+pynacl==1.6.2
+iso8601==2.1.0
+aiohttp==3.14.1
