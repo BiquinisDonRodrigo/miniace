@@ -163,6 +163,10 @@ data/
   Kubo repo; check `docker compose logs kubo` and
   `docker compose logs acestream | grep sync`. Force a refresh with
   `docker compose restart acestream`.
+- **DNS errors at first boot** (`Temporary failure in name resolution`): the
+  sync starts before gluetun has its DNS/VPN ready, so the first cycle can fail
+  all fetches. It retries every `RETRY_INTERVAL` (default 60 s) until at least
+  one source is refreshed, so playlists appear shortly after the VPN is up.
 - **kubo unreachable from acestream**: verify `FIREWALL_OUTBOUND_SUBNETS`
   matches the compose network subnet (`DOCKER_SUBNET`).
 - **Streams fail from clients but work locally**: the client must reach the

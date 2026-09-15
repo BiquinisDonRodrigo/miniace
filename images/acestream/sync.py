@@ -37,6 +37,7 @@ SOURCES_FILE = os.environ.get("SOURCES_FILE", "/data/sources.json")
 PLAYLISTS_DIR = os.environ.get("PLAYLISTS_DIR", "/data/playlists")
 HTTP_PORT = int(os.environ.get("HTTP_PORT", "8080"))
 SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "3600"))
+RETRY_INTERVAL = int(os.environ.get("RETRY_INTERVAL", "60"))
 FETCH_TIMEOUT = int(os.environ.get("FETCH_TIMEOUT", "120"))
 HOST_TOKEN = "__MINIACE_HOST__"
 PUBLIC_PORT = (os.environ.get("PUBLIC_PORT") or "6878").strip()
@@ -194,13 +195,16 @@ def load_sources():
 
 
 def sync_once():
+    """Refresh every configured source. Returns the number fetched, or None
+    when there are no usable sources."""
     sources = load_sources()
     if not sources:
         log.warning("no usable sources found in %s", SOURCES_FILE)
-        return
+        return None
 
     merged_header = None
     merged_entries = []
+    fetched = 0
     for name, origin in sources:
         text = fetch_playlist(candidate_urls(origin))
         if text is None:
@@ -210,6 +214,7 @@ def sync_once():
                 origin,
             )
             continue
+        fetched += 1
         rewritten, count = rewrite_playlist(text)
         write_playlist("%s.m3u" % name, rewritten)
         log.info("synced %r: %d acestream channels rewritten", name, count)
@@ -227,14 +232,29 @@ def sync_once():
         write_playlist("all.m3u", "\n".join([merged_header] + merged_entries) + "\n")
         log.info("merged playlist written to all.m3u")
 
+    return fetched
+
 
 def sync_loop():
+    # A cycle that fetches nothing (typically the container starting before
+    # gluetun has its DNS/VPN ready) retries soon instead of waiting a full
+    # SYNC_INTERVAL, so playlists appear as soon as the network is up.
     while not stop_event.is_set():
         try:
-            sync_once()
+            fetched = sync_once()
         except Exception:  # noqa: BLE001 - the loop must survive bad cycles
             log.exception("unexpected error during sync")
-        stop_event.wait(SYNC_INTERVAL)
+            delay = SYNC_INTERVAL
+        else:
+            if fetched == 0:
+                log.warning(
+                    "sync: no source could be refreshed; retrying in %ds",
+                    RETRY_INTERVAL,
+                )
+                delay = RETRY_INTERVAL
+            else:
+                delay = SYNC_INTERVAL
+        stop_event.wait(delay)
 
 
 class PlaylistHandler(SimpleHTTPRequestHandler):
