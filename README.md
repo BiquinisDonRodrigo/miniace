@@ -2,6 +2,9 @@
 
 [![Build acestream image](https://github.com/BiquinisDonRodrigo/miniace/actions/workflows/docker.yml/badge.svg)](https://github.com/BiquinisDonRodrigo/miniace/actions/workflows/docker.yml)
 
+**Full documentation:** [docs/intro.md](docs/intro.md) — requirements,
+installation, configuration, playlists, architecture and troubleshooting.
+
 Dockerized [AceStream](https://www.acestream.org/) engine behind a
 ProtonVPN WireGuard tunnel with **dynamic P2P port forwarding**, plus
 **IPFS/IPNS M3U playlist** support. Three containers, one custom image:
