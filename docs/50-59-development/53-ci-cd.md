@@ -28,15 +28,8 @@ Concurrency cancels in-progress runs for the same ref.
 `docker-compose.yml` references
 `ghcr.io/biquinisdonrodrigo/miniace:latest` **and** declares
 `build: ./images/acestream`, so a local `docker compose build` overrides
-the registry image.
-
-The package is **private by default**. Either make it public (GitHub →
-Packages → miniace → Package settings) or authenticate:
-
-```sh
-echo "$GHCR_PAT" | docker login ghcr.io -u <user> --password-stdin
-docker compose pull
-```
+the registry image. The package is public: pulling it requires no
+authentication.
 
 ## Release checklist
 

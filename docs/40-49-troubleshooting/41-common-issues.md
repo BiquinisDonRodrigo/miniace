@@ -83,10 +83,10 @@ container stays healthy — that is expected.
 
 ## `docker compose pull` denied
 
-The GHCR package is private by default. Make it public or run
-`docker login ghcr.io`; see
-[11 Requirements](../10-19-getting-started/11-requirements.md). Building
-locally (`docker compose up -d --build`) avoids the registry entirely.
+The GHCR package is public, so a denial usually means you are logged in to
+ghcr.io with an expired or insufficient token: run `docker logout ghcr.io`
+and retry, or build locally (`docker compose up -d --build`) to avoid the
+registry entirely.
 
 ## Port already in use
 

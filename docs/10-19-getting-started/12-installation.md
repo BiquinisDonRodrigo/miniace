@@ -36,15 +36,13 @@ Format details in [21 Playlists](../20-29-operation/21-playlists.md).
 
 ## 4. Start the stack
 
-With the prebuilt image from GHCR:
+With the prebuilt image from GHCR (public, no authentication needed):
 
 ```sh
-docker compose pull
 docker compose up -d
 ```
 
-If the GHCR package is private and you have not logged in, the pull fails;
-build the image locally instead (no registry access needed):
+To build the image locally instead (no registry access needed):
 
 ```sh
 docker compose up -d --build

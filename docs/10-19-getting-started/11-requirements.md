@@ -36,13 +36,9 @@ through the bundled Kubo node, with public gateways as fallback.
 
 ## Image registry access
 
-The `acestream` image is published to GHCR. The package is **private by
-default**, so either:
-
-- make it public (GitHub → your profile → Packages → miniace → Package
-  settings → Change visibility), or
-- run `docker login ghcr.io` with a token that has `read:packages` before
-  `docker compose pull`.
+The `acestream` image is published publicly to GHCR as
+`ghcr.io/biquinisdonrodrigo/miniace`: `docker compose up -d` pulls it with
+no authentication.
 
 Building locally (`docker compose up -d --build`) avoids GHCR entirely.
 
