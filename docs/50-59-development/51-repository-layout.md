@@ -12,6 +12,7 @@
 │       ├── Dockerfile            # engine tarball + pinned Python deps
 │       ├── entrypoint.sh         # container entrypoint
 │       ├── engine.sh             # port resolution + engine supervisor
+│       ├── configure_engine.py   # authenticated client settings + verification
 │       ├── sync.py               # playlist sync + HTTP server
 │       └── requirements.txt      # pinned engine Python dependencies
 ├── kubo/

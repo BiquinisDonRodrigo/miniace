@@ -46,37 +46,23 @@ IPTV client (TiviMate / VLC / Jellyfin)
 
 ## Features
 
-- **Dynamic P2P port forwarding.** The engine only ever binds the port
-  ProtonVPN announces via NAT-PMP and rebinds automatically whenever the
-  port rotates — no silent dead configurations.
-- **IPFS/IPNS playlist sources.** Playlists live behind mutable IPNS names
-  and resolve through the bundled Kubo node, with public gateways as
-  fallback.
-- **Per-request host rewriting.** The same playlist works from the LAN and
-  from Tailscale at once: entries point at whichever host fetched them.
-- **Live-editable sources.** `data/sources.json` is re-read on every sync
-  cycle; edits apply without restarting.
-- **One compose file, official images.** Only the `acestream` image is
-  custom; gluetun and kubo run upstream images untouched (kubo gets a
-  one-line gateway init script).
-- **Reproducible engine install.** The official AceStream tarball is pinned
-  by SHA256 in the Dockerfile.
+- The engine only binds the P2P port ProtonVPN announces and rebinds on rotation.
+- Every AceStream engine option is configurable from `.env`; empty value = factory default.
+- IPFS/IPNS playlists with per-request host rewriting (LAN and Tailscale at once).
+- One custom image; gluetun and kubo run official images untouched.
 
 ## Requirements
 
-- Docker Engine + Docker Compose v2, on an **x86_64 / amd64** host (the
-  official Linux AceStream engine is amd64-only; ARM hosts are not
-  supported).
-- **ProtonVPN paid plan** (Plus/Unlimited) — port forwarding is not
-  available on the free tier.
-- A **WireGuard configuration** generated at
-  [account.proton.me/vpn/WireGuard](https://account.proton.me/vpn/WireGuard)
-  with **"NAT-PMP (Port Forwarding)"** enabled.
-- Two free TCP host ports (default **6878** and **8080**).
-- A `data/sources.json` file declaring at least one playlist source
+- Docker Engine + Docker Compose v2 on an x86_64 host. The official engine is
+  amd64 only; ARM hosts are not supported.
+- A ProtonVPN paid plan (Plus/Unlimited) and a WireGuard configuration
+  generated at [account.proton.me/vpn/WireGuard](https://account.proton.me/vpn/WireGuard)
+  with **NAT-PMP (Port Forwarding)** enabled.
+- Two free TCP host ports (default 6878 and 8080).
+- A `data/sources.json` file with at least one playlist source
   (see [Playlists](#playlists)).
 
-Without a forwarded port the engine never starts — by design.
+Without a forwarded port the engine does not start.
 
 ## Quick start
 
@@ -101,34 +87,24 @@ docker compose ps
 docker compose logs -f gluetun acestream
 ```
 
-The engine waits until gluetun negotiates the forwarded port, then binds
-its P2P session to it. First IPNS resolution on a fresh Kubo repo can take
-a few minutes.
+The engine waits for the forwarded port, then binds to it. First IPNS
+resolution on a fresh Kubo repo can take minutes.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust:
+Copy `.env.example` to `.env`. The only required value is `WG_PRIVATE_KEY`.
+Everything else ships with working defaults: ports 6878/8080, hourly
+playlist sync and engine budgets tuned for sharing while you watch.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WG_PRIVATE_KEY` | — | ProtonVPN WireGuard private key (**required**) |
-| `PROTON_COUNTRIES` | `Netherlands` | VPN server countries |
-| `ACESTREAM_HTTP_PORT` | `6878` | Engine HTTP API port (host + container) |
-| `PLAYLISTS_PORT` | `8080` | Playlist HTTP server port (host + container) |
-| `SYNC_INTERVAL` | `3600` | Seconds between playlist refreshes |
-| `IPFS_GATEWAY` | `http://kubo:48080` | Local Kubo gateway used for IPNS resolution |
-| `IPFS_FALLBACK_GATEWAYS` | filebase, ipfs.io, dweb.link, w3s.link | Public gateways used when local resolution fails |
-| `ACESTREAM_CACHE_LIMIT_GB` | `5` | Engine disk cache in GB (`0` disables) |
-| `PORT_WATCH_INTERVAL_S` | `45` | How often port rotations are detected |
-| `TZ` | `Europe/Madrid` | Timezone for the containers |
-| `DOCKER_SUBNET` | `172.30.0.0/24` | Compose subnet; must not overlap the VPN tunnel range |
-
-Full reference: [13 Configuration](docs/10-19-getting-started/13-configuration.md).
+Each variable in [.env.example](.env.example) is documented by its own
+comment: effect, unit, and what an empty value does. The full reference is
+[13 Configuration](docs/10-19-getting-started/13-configuration.md). To
+measure upload, see
+[42 Diagnostics](docs/40-49-troubleshooting/42-diagnostics.md#upload-throughput).
 
 ## Playlists
 
-Sources are declared in `data/sources.json` (re-read on every sync cycle,
-so edits apply without restarting):
+Sources live in `data/sources.json`, re-read on every sync cycle:
 
 ```json
 [
@@ -137,47 +113,30 @@ so edits apply without restarting):
 ]
 ```
 
-- Origins can be `ipns://`, `ipfs://` or plain `http(s)://` URLs.
-  (`nombre`/`origen` are accepted as aliases of `name`/`origin`.)
-- Every AceStream entry (bare infohash, `acestream://<hash>` or
-  `http://…?id=<hash>`) is rewritten **per request** to
-  `http://<request-host>:$ACESTREAM_HTTP_PORT/ace/getstream?id=<hash>`,
-  where `<request-host>` is the host you used to fetch the playlist.
-  Fetched via `http://192.168.1.100:8080/all.m3u`, entries point at
-  `192.168.1.100:6878`; fetched via `http://100.64.x.x:8080/all.m3u`, they
-  point at `100.64.x.x:6878`. All other URLs are preserved.
-- Output lands in `data/playlists/` (`<name>.m3u` per source plus a merged
-  `all.m3u`) and is served at `http://<HOST>:8080/`.
-- IPNS resolution goes through the local Kubo gateway and falls back to
-  public gateways (`IPFS_FALLBACK_GATEWAYS`) when local resolution is slow
-  or fails. If a cycle fetches nothing, it retries every 60 s until at
-  least one source is refreshed.
+- Origins: `ipns://`, `ipfs://` or `http(s)://` URLs (`nombre`/`origen` are
+  accepted as aliases of `name`/`origin`).
+- AceStream entries are rewritten per request to
+  `http://<request-host>:6878/ace/getstream?id=<hash>`, where the host is
+  the one you used to fetch the playlist. Other URLs are preserved.
+- Output: `data/playlists/<name>.m3u` plus a merged `all.m3u`, served at
+  `http://<HOST>:8080/`. IPNS resolves through the local Kubo gateway, with
+  public gateways as fallback.
 
 Details: [21 Playlists](docs/20-29-operation/21-playlists.md).
 
 ## How it works
 
-- **gluetun** connects ProtonVPN over WireGuard, requests a port via
-  NAT-PMP and exposes it on its control server (loopback `:8001` of the
-  shared netns) plus the `/tmp/gluetun/forwarded_port` status file.
-  `FIREWALL_INPUT_PORTS` lets LAN clients reach the published 6878/8080;
-  `FIREWALL_OUTBOUND_SUBNETS` lets the acestream container reach kubo.
-- **acestream** shares gluetun's network namespace. Its entrypoint runs:
-  - `engine.sh`: resolves the announced port (control API
-    `GET /v1/portforward`, then legacy `/v1/port_forwarded`, then the
-    status file) and starts the engine with `--http-port=6878` and
-    `--port=<N>`. The launcher daemonizes, so the supervisor probes the
-    HTTP API instead of trusting the PID; real crashes back off
-    exponentially (3 → 60 s), and port rotations respawn immediately.
-    The engine **only** binds the announced port: while none exists it
-    waits, because binding any other port makes inbound P2P connectivity
-    silently impossible.
-  - `sync.py`: playlist sync + HTTP server (see [Playlists](#playlists)).
-- **kubo** runs the official image with `IPFS_PROFILE=server`. The only
-  addition is the one-line `kubo/001-gateway-port.sh` mounted into the
-  image's `/container-init.d` extension point, which binds the gateway to
-  `0.0.0.0:48080` (stock kubo binds it to localhost, unreachable from
-  other containers).
+- **gluetun** tunnels ProtonVPN over WireGuard, negotiates the NAT-PMP
+  forwarded port and exposes it on a loopback control server (`:8001`) and
+  a status file.
+- **acestream** shares gluetun's network namespace. The entrypoint resolves
+  the announced port, starts the engine bound to it, applies client
+  settings through the local API and restarts on port rotation. Without a
+  forwarded port the engine does not start.
+- **sync.py** fetches the sources, rewrites the entries and serves the
+  playlists on `:8080`.
+- **kubo** resolves IPNS through its gateway on `:48080` (Docker network
+  only).
 
 Deep dive: [31 Architecture](docs/30-39-architecture/31-architecture.md) ·
 [32 P2P port forwarding](docs/30-39-architecture/32-p2p-port-forwarding.md).
@@ -249,38 +208,30 @@ Details: [53 CI/CD](docs/50-59-development/53-ci-cd.md).
 ## Troubleshooting
 
 - **No forwarded port** (`engine: no Gluetun forwarded port available yet`):
-  ProtonVPN plan without port forwarding, WireGuard config generated
-  without NAT-PMP, or a server without support (`PORT_FORWARD_ONLY=on`
-  filters for capable ones). Check `docker compose logs gluetun`.
+  plan without port forwarding, WireGuard config without NAT-PMP, or a
+  server without support. Check `docker compose logs gluetun`.
 - **Playlist 404 / empty**: first IPNS resolution can take minutes on a
-  fresh Kubo repo; check `docker compose logs kubo` and
-  `docker compose logs acestream | grep sync`. Force a refresh with
+  fresh Kubo repo. Check `docker compose logs kubo`; force a refresh with
   `docker compose restart acestream`.
-- **DNS errors at first boot** (`Temporary failure in name resolution`):
-  the sync starts before gluetun has its DNS/VPN ready, so the first cycle
-  can fail all fetches. It retries every 60 s until at least one source is
-  refreshed; playlists appear shortly after the VPN is up.
-- **kubo unreachable from acestream**: verify `FIREWALL_OUTBOUND_SUBNETS`
-  matches the compose network subnet (`DOCKER_SUBNET`).
+- **DNS errors at first boot**: the sync starts before the VPN is ready;
+  it retries every 60 s until one source is refreshed.
+- **kubo unreachable from acestream**: `FIREWALL_OUTBOUND_SUBNETS` must
+  match the compose subnet (`DOCKER_SUBNET`).
 - **Streams fail from clients but work locally**: the client must reach
-  `ACESTREAM_HTTP_PORT` on the same host it used to fetch the playlist,
-  and the engine needs inbound access to that port
-  (`FIREWALL_INPUT_PORTS`).
+  `ACESTREAM_HTTP_PORT` on the host it fetched the playlist from.
 
 More: [41 Common issues](docs/40-49-troubleshooting/41-common-issues.md) ·
 [42 Diagnostics](docs/40-49-troubleshooting/42-diagnostics.md).
 
 ## Security notes
 
-- `.env` holds `WG_PRIVATE_KEY`: it is gitignored — never commit or share
-  it.
+- `.env` holds `WG_PRIVATE_KEY`: gitignored, never commit or share it.
 - The gluetun control server (`:8001`) is loopback-only inside the shared
   network namespace and is not published to the host.
-- Ports 6878/8080 are published on the host. Restrict access with a
-  host firewall if you do not want them LAN-wide; there is no
-  authentication on either endpoint.
-- The engine keeps a disk cache of streamed pieces under
-  `data/acestream/`; set `ACESTREAM_CACHE_LIMIT_GB=0` to disable it.
+- Ports 6878/8080 are published on the host without authentication; restrict
+  them with a host firewall if you do not want them LAN-wide.
+- The engine keeps a disk cache under `data/acestream/`; set
+  `ACESTREAM_CACHE_LIMIT_GB=0` for RAM caching instead.
 
 ## Documentation
 

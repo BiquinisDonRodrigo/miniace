@@ -13,7 +13,8 @@ sync/server in a single container.
   args). The tarball is not redistributed.
 - Installs `ca-certificates curl iproute2` plus the pinned Python
   dependencies from `requirements.txt`.
-- Copies `engine.sh`, `entrypoint.sh` and `sync.py` to `/opt/miniace/`.
+- Copies `engine.sh`, `entrypoint.sh`, `configure_engine.py` and `sync.py`
+  to `/opt/miniace/`.
 - Healthcheck: `curl -fsS http://127.0.0.1:8080/` (playlist server).
 - Entrypoint: `entrypoint.sh`.
 
@@ -35,13 +36,30 @@ Pure function and variable definitions (no side effects when sourced):
 | `query_gluetun_port` | Resolves the announced port (control API → legacy route → status file) |
 | `engine_api_alive` | Probes the engine HTTP API |
 | `engine_pids` / `stop_engine` / `sweep_engine_leftovers` | Process management via `/proc` (the image ships no `ps`) |
-| `build_engine_flags` | State and cache flags |
+| `validate_engine_config` | Rejects malformed tuning values, invalid enums and managed flags duplicated in `ACESTREAM_EXTRA_FLAGS` |
+| `build_engine_flags` | Builds `ENGINE_FLAGS`: state, rate limits, connection/slot budgets, slot-manager tuning, cache backend/sizes, logging and extra passthrough flags |
+| `configure_engine` | Invokes the authenticated settings helper after HTTP readiness |
 | `start_engine` | Supervisor loop: resolve port → spawn engine → backoff on crashes |
 | `port_watch_loop` | Detects rotations and restarts the engine |
-| `engine_init` | Creates state/cache dirs and warns if Gluetun is not reachable |
+| `engine_init` | Validates configuration, creates state/cache dirs, logs the upload profile and checks Gluetun |
 
 Behavior details in
 [32 P2P port forwarding](../30-39-architecture/32-p2p-port-forwarding.md).
+
+## configure_engine.py
+
+Reads the engine's per-run token from `engine_runtime.json` and uses
+`GET/PATCH /api/v1/settings` on loopback to apply the client settings miniace
+manages: connection/peer budgets, manual slot ceiling, rate limits, adaptive
+slots, cache backends/sizes and the VOD buffer. Requests use the `x-api-key`
+header and `Accept: application/json`. It changes only the managed settings
+and verifies the response; other persisted settings survive.
+
+Exit status `0` means the current settings match; `10` means settings were
+saved and the supervisor must restart to load them into native preferences;
+`1` indicates a configuration failure. The native Desktop client overwrites
+some CLI preferences from player settings during initialization, and its
+total connection limit requires a restart after an API update.
 
 ## sync.py
 

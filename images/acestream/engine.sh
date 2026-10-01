@@ -19,13 +19,149 @@ ACTIVE_P2P_PORT_FILE="$STATE_DIR/active_p2p_port"
 # is also probed for compatibility with older Gluetun versions.
 GLUETUN_CONTROL_BASE="${GLUETUN_CONTROL_BASE:-http://127.0.0.1:8001}"
 GLUETUN_PORT_FILE="${GLUETUN_PORT_FILE:-/tmp/gluetun/forwarded_port}"
-PORT_WATCH_INTERVAL_S="${PORT_WATCH_INTERVAL_S:-45}"
+PORT_WATCH_INTERVAL_S="${PORT_WATCH_INTERVAL_S:-10}"
 
 ENGINE_HOME="${ENGINE_HOME:-/opt/acestream}"
 ENGINE_STATE_DIR="${ENGINE_STATE_DIR:-/acestream/state}"
 ENGINE_CACHE_DIR="${ENGINE_CACHE_DIR:-/acestream/cache}"
 ACESTREAM_CACHE_LIMIT_GB="${ACESTREAM_CACHE_LIMIT_GB:-5}"
+ACESTREAM_MAX_CONNECTIONS="${ACESTREAM_MAX_CONNECTIONS:-2000}"
+ACESTREAM_MAX_PEERS_LIMIT="${ACESTREAM_MAX_PEERS_LIMIT:-500}"
+ACESTREAM_STARTUP_MAX_PEERS="${ACESTREAM_STARTUP_MAX_PEERS:-100}"
+ACESTREAM_STARTUP_UPLOAD_SLOTS="${ACESTREAM_STARTUP_UPLOAD_SLOTS:-50}"
+ACESTREAM_SLOTS_MANAGER_USE_CPU_LIMIT="${ACESTREAM_SLOTS_MANAGER_USE_CPU_LIMIT:-0}"
+# Optional engine options: empty keeps the engine's factory default (the
+# matching CLI flag is omitted). Units: Kb/s for limits, bytes for sizes.
+ACESTREAM_UPLOAD_LIMIT="${ACESTREAM_UPLOAD_LIMIT:-0}"
+ACESTREAM_DOWNLOAD_LIMIT="${ACESTREAM_DOWNLOAD_LIMIT:-0}"
+ACESTREAM_MAX_UPLOAD_SLOTS="${ACESTREAM_MAX_UPLOAD_SLOTS:-}"
+ACESTREAM_MIN_UPLOAD_SLOTS="${ACESTREAM_MIN_UPLOAD_SLOTS:-}"
+ACESTREAM_FIX_UPLOAD_SLOTS="${ACESTREAM_FIX_UPLOAD_SLOTS:-1}"
+ACESTREAM_MAX_TIMESHIFT_PEERS="${ACESTREAM_MAX_TIMESHIFT_PEERS:-}"
+ACESTREAM_SLOTS_MANAGER_MIN_SLOTS="${ACESTREAM_SLOTS_MANAGER_MIN_SLOTS:-}"
+ACESTREAM_SLOTS_MANAGER_CPU_LOW_LIMIT="${ACESTREAM_SLOTS_MANAGER_CPU_LOW_LIMIT:-}"
+ACESTREAM_SLOTS_MANAGER_CPU_HIGH_LIMIT="${ACESTREAM_SLOTS_MANAGER_CPU_HIGH_LIMIT:-}"
+ACESTREAM_SLOTS_MANAGER_CPU_LOW_LIMIT_PER_CORE="${ACESTREAM_SLOTS_MANAGER_CPU_LOW_LIMIT_PER_CORE:-}"
+ACESTREAM_SLOTS_MANAGER_CPU_HIGH_LIMIT_PER_CORE="${ACESTREAM_SLOTS_MANAGER_CPU_HIGH_LIMIT_PER_CORE:-}"
+ACESTREAM_SLOTS_MANAGER_BASE_BITRATE="${ACESTREAM_SLOTS_MANAGER_BASE_BITRATE:-}"
+ACESTREAM_WANTED_SLOTS_FACTOR="${ACESTREAM_WANTED_SLOTS_FACTOR:-}"
+ACESTREAM_STARTUP_SLOTS_FACTOR="${ACESTREAM_STARTUP_SLOTS_FACTOR:-}"
+ACESTREAM_FIX_UPLOAD_SLOTS_INTERVAL="${ACESTREAM_FIX_UPLOAD_SLOTS_INTERVAL:-}"
+ACESTREAM_LIVE_CACHE_TYPE="${ACESTREAM_LIVE_CACHE_TYPE:-auto}"
+ACESTREAM_VOD_CACHE_TYPE="${ACESTREAM_VOD_CACHE_TYPE:-auto}"
+ACESTREAM_LIVE_MEM_CACHE_SIZE="${ACESTREAM_LIVE_MEM_CACHE_SIZE:-}"
+ACESTREAM_LIVE_DISK_CACHE_SIZE="${ACESTREAM_LIVE_DISK_CACHE_SIZE:-}"
+ACESTREAM_MEMORY_CACHE_LIMIT="${ACESTREAM_MEMORY_CACHE_LIMIT:-}"
+ACESTREAM_VOD_BUFFER="${ACESTREAM_VOD_BUFFER:-30}"
+ACESTREAM_LOG_STDOUT_LEVEL="${ACESTREAM_LOG_STDOUT_LEVEL:-info}"
+ACESTREAM_LOG_MAX_SIZE="${ACESTREAM_LOG_MAX_SIZE:-10485760}"
+ACESTREAM_LOG_BACKUP_COUNT="${ACESTREAM_LOG_BACKUP_COUNT:-1}"
+ACESTREAM_VERBOSE_MODULES="${ACESTREAM_VERBOSE_MODULES:-}"
+# Power-user passthrough appended after every generated flag (argparse gives
+# the last occurrence priority). Managed options are rejected by validation.
+ACESTREAM_EXTRA_FLAGS="${ACESTREAM_EXTRA_FLAGS:-}"
 API_PORT="${ACESTREAM_HTTP_PORT:-6878}"
+ENGINE_FLAGS=()
+RESOLVED_LIVE_CACHE_TYPE=""
+RESOLVED_VOD_CACHE_TYPE=""
+
+# Check before spawning either background loop. Canonical decimal integers
+# avoid Bash's octal interpretation and arithmetic expansion of user input.
+# Options miniace owns: derived from dedicated variables and kept in sync
+# with the engine's persisted client settings, so ACESTREAM_EXTRA_FLAGS must
+# not set them (a duplicate would fight the settings sync after restarts).
+MANAGED_FLAG_NAMES=(
+  max-connections max-peers max-upload-slots
+  upload-limit download-limit fix-upload-slots
+  cache-limit cache-dir state-dir
+  live-cache-type vod-cache-type live-mem-cache-size live-disk-cache-size
+  memory-cache-limit disk-cache-limit vod-buffer
+  http-port port bind-all client-console api-port
+)
+
+validate_extra_flags() {
+  local token flag managed extra_tokens=()
+  read -r -a extra_tokens <<< "$ACESTREAM_EXTRA_FLAGS"
+  for token in "${extra_tokens[@]}"; do
+    if [[ ! "$token" =~ ^--[a-z0-9][a-z0-9-]*(=.+)?$ ]]; then
+      echo "engine: ERROR: ACESTREAM_EXTRA_FLAGS token '$token' is not a --flag[=value] option" >&2
+      return 1
+    fi
+    flag=${token#--}
+    flag=${flag%%=*}
+    for managed in "${MANAGED_FLAG_NAMES[@]}"; do
+      if [[ "$flag" == "$managed" ]]; then
+        echo "engine: ERROR: ACESTREAM_EXTRA_FLAGS token '$token' duplicates a managed option; set the dedicated ACESTREAM_* variable instead" >&2
+        return 1
+      fi
+    done
+  done
+}
+
+validate_engine_config() {
+  local name value
+  for name in ACESTREAM_MAX_CONNECTIONS ACESTREAM_MAX_PEERS_LIMIT \
+    ACESTREAM_STARTUP_MAX_PEERS ACESTREAM_STARTUP_UPLOAD_SLOTS PORT_WATCH_INTERVAL_S; do
+    value=${!name}
+    if [[ ! "$value" =~ ^[1-9][0-9]{0,8}$ ]]; then
+      echo "engine: ERROR: $name must be a positive decimal integer (1-999999999), got '$value'" >&2
+      return 1
+    fi
+  done
+  # Optional engine options: empty is valid and keeps the factory default.
+  for name in ACESTREAM_UPLOAD_LIMIT ACESTREAM_DOWNLOAD_LIMIT \
+    ACESTREAM_MAX_UPLOAD_SLOTS ACESTREAM_MIN_UPLOAD_SLOTS \
+    ACESTREAM_MAX_TIMESHIFT_PEERS ACESTREAM_SLOTS_MANAGER_MIN_SLOTS \
+    ACESTREAM_SLOTS_MANAGER_CPU_LOW_LIMIT ACESTREAM_SLOTS_MANAGER_CPU_HIGH_LIMIT \
+    ACESTREAM_SLOTS_MANAGER_CPU_LOW_LIMIT_PER_CORE ACESTREAM_SLOTS_MANAGER_CPU_HIGH_LIMIT_PER_CORE \
+    ACESTREAM_SLOTS_MANAGER_BASE_BITRATE ACESTREAM_WANTED_SLOTS_FACTOR \
+    ACESTREAM_STARTUP_SLOTS_FACTOR ACESTREAM_FIX_UPLOAD_SLOTS_INTERVAL \
+    ACESTREAM_LIVE_MEM_CACHE_SIZE ACESTREAM_LIVE_DISK_CACHE_SIZE \
+    ACESTREAM_MEMORY_CACHE_LIMIT ACESTREAM_LOG_MAX_SIZE ACESTREAM_LOG_BACKUP_COUNT; do
+    value=${!name}
+    if [[ -n "$value" && ! "$value" =~ ^(0|[1-9][0-9]{0,19})$ ]]; then
+      echo "engine: ERROR: $name must be empty or a non-negative decimal integer, got '$value'" >&2
+      return 1
+    fi
+  done
+  if [[ ! "$ACESTREAM_CACHE_LIMIT_GB" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+    echo "engine: ERROR: ACESTREAM_CACHE_LIMIT_GB must be a non-negative decimal integer (0-999999999)" >&2
+    return 1
+  fi
+  if [[ ! "$ACESTREAM_VOD_BUFFER" =~ ^[1-9][0-9]{0,8}$ ]]; then
+    echo "engine: ERROR: ACESTREAM_VOD_BUFFER must be a positive decimal integer, got '$ACESTREAM_VOD_BUFFER'" >&2
+    return 1
+  fi
+  for name in ACESTREAM_FIX_UPLOAD_SLOTS ACESTREAM_SLOTS_MANAGER_USE_CPU_LIMIT; do
+    value=${!name}
+    if [[ "$value" != 0 && "$value" != 1 ]]; then
+      echo "engine: ERROR: $name must be 0 or 1" >&2
+      return 1
+    fi
+  done
+  for name in ACESTREAM_LIVE_CACHE_TYPE ACESTREAM_VOD_CACHE_TYPE; do
+    value=${!name}
+    if [[ ! "$value" =~ ^(auto|disk|memory)$ ]]; then
+      echo "engine: ERROR: $name must be auto, disk or memory, got '$value'" >&2
+      return 1
+    fi
+  done
+  if [[ ! "$ACESTREAM_LOG_STDOUT_LEVEL" =~ ^(error|info|debug|any)$ ]]; then
+    echo "engine: ERROR: ACESTREAM_LOG_STDOUT_LEVEL must be error, info, debug or any, got '$ACESTREAM_LOG_STDOUT_LEVEL'" >&2
+    return 1
+  fi
+  if [[ -n "$ACESTREAM_VERBOSE_MODULES" && ! "$ACESTREAM_VERBOSE_MODULES" =~ ^[A-Za-z0-9_,.-]+$ ]]; then
+    echo "engine: ERROR: ACESTREAM_VERBOSE_MODULES must be a comma-separated module list, got '$ACESTREAM_VERBOSE_MODULES'" >&2
+    return 1
+  fi
+  if (( ACESTREAM_STARTUP_UPLOAD_SLOTS > ACESTREAM_STARTUP_MAX_PEERS \
+    || ACESTREAM_STARTUP_MAX_PEERS > ACESTREAM_MAX_PEERS_LIMIT \
+    || ACESTREAM_MAX_PEERS_LIMIT > ACESTREAM_MAX_CONNECTIONS )); then
+    echo "engine: ERROR: require startup upload slots <= startup peers <= peer limit <= total connections" >&2
+    return 1
+  fi
+  validate_extra_flags || return 1
+}
 
 is_valid_port() {
   [[ "$1" =~ ^[0-9]+$ ]] && (( "$1" >= 1 && "$1" <= 65535 ))
@@ -82,8 +218,8 @@ stop_engine() {
   for pid in $(engine_pids); do
     kill -TERM "$pid" 2>/dev/null || true
   done
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    engine_api_alive || return 0
+  for (( i=0; i<10; i++ )); do
+    [[ -z "$(engine_pids)" ]] && return 0
     sleep 1
   done
   for pid in $(engine_pids); do
@@ -104,42 +240,154 @@ sweep_engine_leftovers() {
   done
 }
 
-# Persistent state + disk cache flags. A disk cache gives the swarm upload
-# reciprocity (better peers); ACESTREAM_CACHE_LIMIT_GB=0 disables it.
-build_engine_flags() {
-  local flags="--state-dir=$ENGINE_STATE_DIR"
-  if [[ "$ACESTREAM_CACHE_LIMIT_GB" =~ ^[0-9]+$ ]] && (( ACESTREAM_CACHE_LIMIT_GB > 0 )); then
-    flags="$flags --cache-dir=$ENGINE_CACHE_DIR --cache-limit=$ACESTREAM_CACHE_LIMIT_GB"
+# Populate an argument array: paths must survive spaces and glob characters.
+# Live slots scale automatically, so max-upload-slots alone would not raise
+# their adaptive ceiling. Set both the startup budget and max-peers-limit.
+# resolve_cache_types() fills the globals used by engine_init's log line and
+# by configure_engine.
+resolve_cache_types() {
+  RESOLVED_LIVE_CACHE_TYPE=$ACESTREAM_LIVE_CACHE_TYPE
+  RESOLVED_VOD_CACHE_TYPE=$ACESTREAM_VOD_CACHE_TYPE
+  if [[ "$RESOLVED_LIVE_CACHE_TYPE" == auto ]]; then
+    if (( ACESTREAM_CACHE_LIMIT_GB > 0 )); then RESOLVED_LIVE_CACHE_TYPE=disk; else RESOLVED_LIVE_CACHE_TYPE=memory; fi
   fi
-  printf '%s' "$flags"
+  if [[ "$RESOLVED_VOD_CACHE_TYPE" == auto ]]; then
+    if (( ACESTREAM_CACHE_LIMIT_GB > 0 )); then RESOLVED_VOD_CACHE_TYPE=disk; else RESOLVED_VOD_CACHE_TYPE=memory; fi
+  fi
+}
+
+build_engine_flags() {
+  local spec flag var value extra_tokens=()
+  ENGINE_FLAGS=(
+    "--state-dir=$ENGINE_STATE_DIR"
+    "--cache-dir=$ENGINE_CACHE_DIR"
+    "--upload-limit=$ACESTREAM_UPLOAD_LIMIT"
+    "--download-limit=$ACESTREAM_DOWNLOAD_LIMIT"
+    "--max-connections=$ACESTREAM_MAX_CONNECTIONS"
+    "--max-peers=$ACESTREAM_STARTUP_MAX_PEERS"
+    "--max-peers-limit=$ACESTREAM_MAX_PEERS_LIMIT"
+    "--startup-max-peers=$ACESTREAM_STARTUP_MAX_PEERS"
+    "--startup-upload-slots=$ACESTREAM_STARTUP_UPLOAD_SLOTS"
+    "--fix-upload-slots=$ACESTREAM_FIX_UPLOAD_SLOTS"
+    "--slots-manager-use-cpu-limit=$ACESTREAM_SLOTS_MANAGER_USE_CPU_LIMIT"
+  )
+  # Optional options: an empty variable omits the flag (factory default).
+  for spec in \
+    "max-upload-slots ACESTREAM_MAX_UPLOAD_SLOTS" \
+    "min-upload-slots ACESTREAM_MIN_UPLOAD_SLOTS" \
+    "max-timeshift-peers ACESTREAM_MAX_TIMESHIFT_PEERS" \
+    "slots-manager-min-slots ACESTREAM_SLOTS_MANAGER_MIN_SLOTS" \
+    "slots-manager-cpu-low-limit ACESTREAM_SLOTS_MANAGER_CPU_LOW_LIMIT" \
+    "slots-manager-cpu-high-limit ACESTREAM_SLOTS_MANAGER_CPU_HIGH_LIMIT" \
+    "slots-manager-cpu-low-limit-per-core ACESTREAM_SLOTS_MANAGER_CPU_LOW_LIMIT_PER_CORE" \
+    "slots-manager-cpu-high-limit-per-core ACESTREAM_SLOTS_MANAGER_CPU_HIGH_LIMIT_PER_CORE" \
+    "core-slots-manager-base-bitrate ACESTREAM_SLOTS_MANAGER_BASE_BITRATE" \
+    "wanted-slots-factor ACESTREAM_WANTED_SLOTS_FACTOR" \
+    "startup-slots-factor ACESTREAM_STARTUP_SLOTS_FACTOR" \
+    "fix-upload-slots-interval ACESTREAM_FIX_UPLOAD_SLOTS_INTERVAL" \
+    "live-mem-cache-size ACESTREAM_LIVE_MEM_CACHE_SIZE" \
+    "live-disk-cache-size ACESTREAM_LIVE_DISK_CACHE_SIZE" \
+    "memory-cache-limit ACESTREAM_MEMORY_CACHE_LIMIT" \
+    "log-max-size ACESTREAM_LOG_MAX_SIZE" \
+    "log-backup-count ACESTREAM_LOG_BACKUP_COUNT"
+  do
+    read -r flag var <<< "$spec"
+    value=${!var}
+    if [[ -n "$value" ]]; then
+      ENGINE_FLAGS+=("--$flag=$value")
+    fi
+  done
+  if [[ -n "$ACESTREAM_VERBOSE_MODULES" ]]; then
+    ENGINE_FLAGS+=("--verbose=$ACESTREAM_VERBOSE_MODULES")
+  fi
+  resolve_cache_types
+  ENGINE_FLAGS+=(
+    "--live-cache-type=$RESOLVED_LIVE_CACHE_TYPE"
+    "--vod-cache-type=$RESOLVED_VOD_CACHE_TYPE"
+  )
+  if (( ACESTREAM_CACHE_LIMIT_GB > 0 )); then
+    ENGINE_FLAGS+=("--cache-limit=$ACESTREAM_CACHE_LIMIT_GB")
+  fi
+  # Extra flags last: argparse gives the last occurrence priority.
+  read -r -a extra_tokens <<< "$ACESTREAM_EXTRA_FLAGS"
+  if (( ${#extra_tokens[@]} > 0 )); then
+    ENGINE_FLAGS+=("${extra_tokens[@]}")
+  fi
+}
+
+# The client overwrites some CLI settings from its persistent player config.
+# Apply through the supported API; exit 10 means a restart is needed to load
+# the updated connection budget. The token is read inside Python, not argv.
+configure_engine() {
+  python3 /opt/miniace/configure_engine.py \
+    --runtime-file "$ENGINE_HOME/engine_runtime.json" \
+    --api-port "$API_PORT" \
+    --max-connections "$ACESTREAM_MAX_CONNECTIONS" \
+    --max-peers "$ACESTREAM_STARTUP_MAX_PEERS" \
+    --max-upload-slots "$ACESTREAM_MAX_UPLOAD_SLOTS" \
+    --upload-limit "$ACESTREAM_UPLOAD_LIMIT" \
+    --download-limit "$ACESTREAM_DOWNLOAD_LIMIT" \
+    --auto-slots "$ACESTREAM_FIX_UPLOAD_SLOTS" \
+    --cache-dir "$ENGINE_CACHE_DIR" \
+    --cache-limit-gb "$ACESTREAM_CACHE_LIMIT_GB" \
+    --memory-cache-limit "$ACESTREAM_MEMORY_CACHE_LIMIT" \
+    --live-cache-type "$RESOLVED_LIVE_CACHE_TYPE" \
+    --vod-cache-type "$RESOLVED_VOD_CACHE_TYPE" \
+    --vod-buffer "$ACESTREAM_VOD_BUFFER"
 }
 
 # Engine supervisor.
 #
-# The start-engine launcher daemonizes: it forks the real daemon and exits
-# a few seconds later, so the loop supervises by probing the HTTP API
-# instead of trusting the launcher PID. The forwarded port is re-resolved
-# on every spawn, and restarts caused by a port rotation respawn
-# immediately; only real crashes back off exponentially (3 -> 60 s).
+# Probe readiness independently of the launcher: it can stay in the
+# foreground or leave a daemon behind. Blocking on its PID would prevent
+# client settings from being applied while a foreground engine is running.
+# The forwarded port is re-resolved on every spawn. Port rotations and
+# settings changes respawn immediately; crashes back off (3 -> 60 s).
 #
 # NOTE on flag spelling: the engine parses value flags in the
-# --flag=value form (see Plugin/BackgroundProcess.py in the engine
-# distribution), so --http-port and --port below always use "=".
+# --flag=value form throughout, including the client's HTTP/P2P options.
+# Performance preferences are parsed by Core.so in engine 3.2.11.
 #   --http-port : HTTP API port (default 6878)
 #   --port      : P2P session port (default 8621) <- bound to the
 #                 Gluetun forwarded port
 #   --log-file  : second log sink in the persisted state dir (rotation
 #                 is fixed by the engine at 10MB + 1 backup; --log-stdout
 #                 above keeps docker compose logs working)
-#   --vod-buffer: VOD buffer in seconds. Options like --live-buffer or
-#                 --live-cache-type circulate in forums but are NOT
-#                 recognized by engine 3.2.11, which silently drops
-#                 unknown flags; this is the supported equivalent.
+#   --vod-buffer: VOD buffer in seconds, independent of live upload slots.
+#                 3.2.11 also supports --live-cache-type and
+#                 --live-mem-cache-size for live cache configuration.
 start_engine() {
-  local backoff=3
+  # settings_restarts reserves immediate API-loss respawns while the settings
+  # configuration has not yet been verified in this supervisor run. A budget
+  # item is consumed on each API loss; it is refilled after the settings are
+  # verified, and a full budget (fresh container start) does not consume it
+  # for the first API loss on an already-verified profile.
+  local backoff=3 profile_ready=0 active_p2p="" settings_restarts=0
   sweep_engine_leftovers
   while true; do
     if engine_api_alive; then
+      if (( ! profile_ready )); then
+        local settings_status=0
+        configure_engine || settings_status=$?
+        if (( settings_status != 0 )); then
+          # Even a failed request may have changed persisted settings. Always
+          # start a fresh daemon before retrying so native prefs reflect them.
+          stop_engine
+          if (( settings_status == 10 )); then
+            echo "engine: restarting to load saved client settings"
+            (( settings_restarts += 1 ))
+          else
+            echo "engine: client settings failed; retrying with a fresh engine in 5s" >&2
+            sleep 5
+          fi
+          continue
+        fi
+        profile_ready=1
+        # A verified profile grants one immediate API-loss respawn: the next
+        # quiet period is a crash of the running daemon, not a repeating
+        # settings restart. Later losses go through the backoff ladder below.
+        settings_restarts=1
+      fi
       sleep 5
       continue
     fi
@@ -150,29 +398,58 @@ start_engine() {
       sleep 5
       continue
     fi
+    if (( profile_ready )) && [[ "$p2p" == "$active_p2p" ]]; then
+      profile_ready=0
+      stop_engine
+      if (( settings_restarts > 0 )); then
+        (( settings_restarts -= 1 ))
+        backoff=3
+        echo "engine: API stopped responding; respawning immediately" >&2
+      else
+        backoff=$(( backoff * 2 ))
+        if (( backoff > 60 )); then backoff=60; fi
+        echo "engine: API stopped responding; retrying in ${backoff}s..." >&2
+        sleep "$backoff"
+      fi
+      continue
+    fi
+    profile_ready=0
+    stop_engine
+    active_p2p=$p2p
     printf '%s\n' "$p2p" > "$ACTIVE_P2P_PORT_FILE" 2>/dev/null || true
-    local engine_flags
-    engine_flags=$(build_engine_flags)
+    build_engine_flags
     echo "engine: starting AceStream (HTTP API on $API_PORT, P2P on forwarded port $p2p)"
-    # shellcheck disable=SC2086
     "$ENGINE_HOME/start-engine" \
       --client-console \
       --bind-all \
       --disable-sentry \
       --log-stdout \
-      --log-stdout-level=info \
+      "--log-stdout-level=$ACESTREAM_LOG_STDOUT_LEVEL" \
       --log-file="$ENGINE_STATE_DIR/acestream.log" \
-      --vod-buffer=30 \
+      "--log-max-size=$ACESTREAM_LOG_MAX_SIZE" \
+      "--log-backup-count=$ACESTREAM_LOG_BACKUP_COUNT" \
+      "--vod-buffer=$ACESTREAM_VOD_BUFFER" \
       --http-port="$API_PORT" \
       --port="$p2p" \
-      $engine_flags 2>&1 &
+      "${ENGINE_FLAGS[@]}" 2>&1 &
     local pid=$!
-    wait "$pid" 2>/dev/null || true
-    sleep 2
-    if engine_api_alive; then
+    local ready=0 deadline=$(( SECONDS + 60 ))
+    while (( SECONDS < deadline )); do
+      if engine_api_alive; then
+        ready=1
+        break
+      fi
+      if ! kill -0 "$pid" 2>/dev/null && [[ -z "$(engine_pids)" ]]; then
+        break
+      fi
+      sleep 1
+    done
+    if (( ready )); then
       backoff=3
       continue
     fi
+    stop_engine
+    wait "$pid" 2>/dev/null || true
     local latest
     latest=$(query_gluetun_port)
     if is_valid_port "$latest" && [[ "$latest" != "$p2p" ]]; then
@@ -207,8 +484,15 @@ port_watch_loop() {
 }
 
 engine_init() {
+  validate_engine_config || return 1
+  resolve_cache_types
   mkdir -p "$STATE_DIR" "$ENGINE_STATE_DIR" "$ENGINE_CACHE_DIR" 2>/dev/null || true
-  echo "engine: state dir $ENGINE_STATE_DIR, cache dir $ENGINE_CACHE_DIR (limit ${ACESTREAM_CACHE_LIMIT_GB}GB)"
+  if (( ACESTREAM_CACHE_LIMIT_GB > 0 )); then
+    echo "engine: state dir $ENGINE_STATE_DIR, cache dir $ENGINE_CACHE_DIR (live=$RESOLVED_LIVE_CACHE_TYPE vod=$RESOLVED_VOD_CACHE_TYPE, disk limit ${ACESTREAM_CACHE_LIMIT_GB}GB)"
+  else
+    echo "engine: state dir $ENGINE_STATE_DIR, cache dir $ENGINE_CACHE_DIR (live=$RESOLVED_LIVE_CACHE_TYPE vod=$RESOLVED_VOD_CACHE_TYPE, no disk cache limit)"
+  fi
+  echo "engine: upload profile: upload-limit=${ACESTREAM_UPLOAD_LIMIT:-0}Kb/s download-limit=${ACESTREAM_DOWNLOAD_LIMIT:-0}Kb/s, connections=$ACESTREAM_MAX_CONNECTIONS, startup peers=$ACESTREAM_STARTUP_MAX_PEERS, peer limit=$ACESTREAM_MAX_PEERS_LIMIT, startup slots=$ACESTREAM_STARTUP_UPLOAD_SLOTS, adaptive slots=$ACESTREAM_FIX_UPLOAD_SLOTS, CPU brake=$ACESTREAM_SLOTS_MANAGER_USE_CPU_LIMIT"
   if ! curl -fsS --max-time 2 "$GLUETUN_CONTROL_BASE/v1/portforward" >/dev/null 2>&1 \
      && [[ ! -s "$GLUETUN_PORT_FILE" ]]; then
     echo "engine: WARNING: Gluetun control server ($GLUETUN_CONTROL_BASE) is not reachable yet and $GLUETUN_PORT_FILE is empty; the engine will wait for a forwarded port" >&2

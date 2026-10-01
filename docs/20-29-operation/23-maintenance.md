@@ -51,9 +51,9 @@ Only user data matters:
 
 ## Cache
 
-The engine disk cache gives upload reciprocity (better peers). It is
-limited to `ACESTREAM_CACHE_LIMIT_GB` (default 5 GB). Set it to `0` to
-disable it, or clear it manually:
+The engine disk cache retains pieces for upload to peers. It is limited to
+`ACESTREAM_CACHE_LIMIT_GB` (default 5 GB). Set it to `0` to use RAM for the
+live/VOD stream cache, or clear the disk cache manually:
 
 ```sh
 docker compose stop acestream
@@ -64,7 +64,7 @@ docker compose start acestream
 ## Port rotations
 
 ProtonVPN rotates the forwarded port on every reconnect. The port watcher
-detects the change within `PORT_WATCH_INTERVAL_S` (default 45 s) and
+checks for changes every `PORT_WATCH_INTERVAL_S` (default 10 s) and
 restarts the engine bound to the new port; players reconnect on their own.
 A brief interruption is expected.
 

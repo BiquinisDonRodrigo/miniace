@@ -9,7 +9,7 @@ set -uo pipefail
 
 source /opt/miniace/engine.sh
 
-engine_init
+engine_init || exit 1
 
 start_engine &
 port_watch_loop &
