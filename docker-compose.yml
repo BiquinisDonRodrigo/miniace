@@ -1,10 +1,14 @@
 services:
   # VPN gateway. Official Gluetun image (upstream: github.com/passteque/gluetun,
-  # also published as qmcgaw/gluetun and ghcr.io/qdm12/gluetun).
+  # also published as qmcgaw/gluetun and ghcr.io/qdm12/gluetun). Pinned to the
+  # 2026-09-26 multi-arch index digest (commit ded7fd0), which includes the
+  # NAT-PMP client fix to retry transient "connection refused" renewals
+  # instead of tearing down the forwarded port (gluetun #3462, fixed by
+  # #3464). Bump the digest deliberately when upgrading.
   # Negotiates the ProtonVPN NAT-PMP forwarded port and publishes it on its
   # control server (:8001, loopback-only inside the shared network namespace).
   gluetun:
-    image: qmcgaw/gluetun:v3.41.3
+    image: qmcgaw/gluetun@sha256:2733bb22b27e3efa7a9f2cef9057ec12791b8b225793fcd3dbfd0508404dfc25
     container_name: miniace-gluetun
     cap_add:
       - NET_ADMIN

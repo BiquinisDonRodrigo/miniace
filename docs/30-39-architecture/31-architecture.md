@@ -15,7 +15,7 @@ IPTV client (TiviMate / VLC / Jellyfin)
 
 | Service | Image | Responsibility |
 |---|---|---|
-| gluetun | `qmcgaw/gluetun:v3.41.3` (official) | WireGuard tunnel to ProtonVPN, NAT-PMP port forwarding, control server on `:8001`, publishes `6878` / `8080`, firewall |
+| gluetun | `qmcgaw/gluetun` (official, digest-pinned) | WireGuard tunnel to ProtonVPN, NAT-PMP port forwarding, control server on `:8001`, publishes `6878` / `8080`, firewall |
 | acestream | `ghcr.io/biquinisdonrodrigo/miniace:latest` | AceStream 3.2.11 engine, port supervisor, IPNS→M3U sync, playlist HTTP server |
 | kubo | `ipfs/kubo:v0.43.0` (official) | Local IPFS node; gateway exposed on `0.0.0.0:48080` |
 

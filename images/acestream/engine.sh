@@ -15,8 +15,8 @@ GLUETUN_P2P_PORT_FILE="$STATE_DIR/gluetun_p2p_port"
 ACTIVE_P2P_PORT_FILE="$STATE_DIR/active_p2p_port"
 
 # Gluetun HTTP control server (HTTP_CONTROL_SERVER_ADDRESS=:8001 in the
-# gluetun service). The current route is /v1/portforward; /v1/port_forwarded
-# is also probed for compatibility with older Gluetun versions.
+# gluetun service). The port is published at GET /v1/portforward as
+# {"ports":[...],"port":N}; port 0 means no forwarded port right now.
 GLUETUN_CONTROL_BASE="${GLUETUN_CONTROL_BASE:-http://127.0.0.1:8001}"
 GLUETUN_PORT_FILE="${GLUETUN_PORT_FILE:-/tmp/gluetun/forwarded_port}"
 PORT_WATCH_INTERVAL_S="${PORT_WATCH_INTERVAL_S:-10}"
@@ -169,21 +169,20 @@ is_valid_port() {
 
 # Echo the port ProtonVPN announced through Gluetun, or nothing.
 # Resolution order:
-#   1. Gluetun control API GET /v1/portforward ({"ports":[...],"port":N})
-#   2. Legacy control API route /v1/port_forwarded
-#   3. The status file Gluetun rewrites on every port change
+#   1. Gluetun control API GET /v1/portforward ({"ports":[...],"port":N});
+#      port 0 or a failed request counts as "not available"
+#   2. The status file Gluetun rewrites on every port change
 query_gluetun_port() {
-  local port="" path fp
-  for path in /v1/portforward /v1/port_forwarded; do
-    port=$(curl -fsS --max-time 3 "$GLUETUN_CONTROL_BASE$path" 2>/dev/null \
-      | sed -nE 's/.*"port"[[:space:]]*:[[:space:]]*([0-9]{1,5}).*/\1/p' | head -n1)
-    is_valid_port "$port" && break
+  local port fp
+  port=$(curl -fsS --max-time 3 "$GLUETUN_CONTROL_BASE/v1/portforward" 2>/dev/null \
+    | sed -nE 's/.*"port"[[:space:]]*:[[:space:]]*([0-9]{1,5}).*/\1/p' | head -n1)
+  if ! is_valid_port "$port"; then
     port=""
-  done
-  if ! is_valid_port "$port" && [[ -s "$GLUETUN_PORT_FILE" ]]; then
-    fp=$(<"$GLUETUN_PORT_FILE")
-    if is_valid_port "$fp"; then
-      port="$fp"
+    if [[ -s "$GLUETUN_PORT_FILE" ]]; then
+      fp=$(<"$GLUETUN_PORT_FILE")
+      if is_valid_port "$fp"; then
+        port="$fp"
+      fi
     fi
   fi
   if is_valid_port "$port"; then

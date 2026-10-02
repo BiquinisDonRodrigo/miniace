@@ -10,7 +10,7 @@ Three containers, one custom image:
 
 | Service   | Image | Role |
 |-----------|-------|------|
-| gluetun   | `qmcgaw/gluetun:v3.41.3` (official) | VPN tunnel, NAT-PMP port forwarding, published ports |
+| gluetun   | `qmcgaw/gluetun` (official, digest-pinned) | VPN tunnel, NAT-PMP port forwarding, published ports |
 | acestream | `ghcr.io/biquinisdonrodrigo/miniace:latest` (built by CI) | AceStream 3.2.11 engine + port supervisor + IPNS→M3U sync + playlist HTTP server |
 | kubo      | `ipfs/kubo:v0.43.0` (official) | Local IPFS node resolving the `ipns://` playlists |
 
@@ -210,6 +210,10 @@ Details: [53 CI/CD](docs/50-59-development/53-ci-cd.md).
 - **No forwarded port** (`engine: no Gluetun forwarded port available yet`):
   plan without port forwarding, WireGuard config without NAT-PMP, or a
   server without support. Check `docker compose logs gluetun`.
+- **NAT-PMP renewal errors** (`connection refused` / `i/o timeout` on
+  `10.2.0.1:5351`): ProtonVPN gateways occasionally drop a renewal datagram;
+  the pinned Gluetun build retries them instead of dropping the forwarded
+  port.
 - **Playlist 404 / empty**: first IPNS resolution can take minutes on a
   fresh Kubo repo. Check `docker compose logs kubo`; force a refresh with
   `docker compose restart acestream`.
@@ -372,7 +376,7 @@ You also agree to comply with the licences and terms applicable to the
 other software and services included in, required by or used through your
 deployment. These include:
 
-- [Gluetun](https://github.com/passteque/gluetun/blob/v3.41.3/LICENSE) (MIT).
+- [Gluetun](https://github.com/passteque/gluetun/blob/master/LICENSE) (MIT).
 - [Kubo](https://github.com/ipfs/kubo/blob/v0.43.0/LICENSE) (MIT /
   Apache-2.0).
 - The operating-system packages, runtime, libraries and other dependencies
@@ -475,7 +479,7 @@ scripts, and the repository documentation — is released under the
 |-----------|-----------------|
 | miniace original code | [MIT](LICENSE) |
 | [AceStream](https://www.acestream.org/) engine | Proprietary — [User Agreement](https://acestream.org/about/user-agreement); official tarball, SHA256-pinned, not redistributed by this repository |
-| [Gluetun](https://github.com/passteque/gluetun) | [MIT](https://github.com/passteque/gluetun/blob/v3.41.3/LICENSE) |
+| [Gluetun](https://github.com/passteque/gluetun) | [MIT](https://github.com/passteque/gluetun/blob/master/LICENSE) |
 | [Kubo (IPFS)](https://github.com/ipfs/kubo) | [MIT / Apache-2.0](https://github.com/ipfs/kubo/blob/v0.43.0/LICENSE) |
 | `python:3.10-slim` base image and OS packages | Their respective licences |
 

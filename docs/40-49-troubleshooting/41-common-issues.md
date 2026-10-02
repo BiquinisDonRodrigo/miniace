@@ -18,6 +18,40 @@ docker compose logs gluetun | grep -iE "port forward|natpmp|error"
 miniace sets `PORT_FORWARD_ONLY=on` to filter for capable servers; if none
 is found, try another `PROTON_COUNTRIES`.
 
+## NAT-PMP renewal errors (`connection refused` / `i/o timeout`)
+
+**Symptom:** recurring lines in `docker compose logs gluetun` pointing at
+the VPN gateway's NAT-PMP responder:
+
+```text
+ERROR [port forwarding] adding port mapping: ... read udp
+10.2.0.2:x->10.2.0.1:5351: recvfrom: connection refused
+INFO  [firewall] removing allowed port <N>...
+INFO  [port forwarding] port forwarded is <N>   # seconds later
+```
+
+**Cause:** Gluetun refreshes the NAT-PMP mapping every 45 s for a 60 s
+lease, and ProtonVPN gateways occasionally drop or refuse one renewal
+datagram. Builds without the refused-retry fix escalated a single refused
+datagram to a full teardown (firewall rule removed, port file cleared)
+until the next successful negotiation — even though the gateway hands the
+same port back. The `+pmp` hint in the error text is OpenVPN-specific and
+does not apply to WireGuard.
+
+**Fix:** run a Gluetun build with the refused-retry logic
+([gluetun #3464](https://github.com/passteque/gluetun/pull/3464), fixing
+[#3462](https://github.com/passteque/gluetun/issues/3462)); the digest
+pinned in `docker-compose.yml` includes it. Refused renewals are retried
+internally, so the announced port stays stable. Persistent `i/o timeout`
+outages mean the gateway is unreachable; they recover on their own.
+
+**Check:**
+
+```sh
+docker compose logs gluetun | grep -iE "port forwarded|refused|timeout"
+docker compose exec acestream curl -s http://127.0.0.1:8001/v1/portforward
+```
+
 ## Playlist 404 / empty
 
 **Symptoms:** `http://<HOST>:8080/all.m3u` returns 404 or an empty list,

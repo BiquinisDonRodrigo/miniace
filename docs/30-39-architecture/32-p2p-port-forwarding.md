@@ -14,9 +14,9 @@ announced by ProtonVPN.** There is no fallback to a static port (e.g.
 `query_gluetun_port()` in `images/acestream/engine.sh` tries, in order:
 
 1. Gluetun control API `GET /v1/portforward` (loopback `:8001` inside the
-   shared network namespace).
-2. Legacy route `GET /v1/port_forwarded`.
-3. The status file `/tmp/gluetun/forwarded_port` (from the shared volume
+   shared network namespace). A missing port (`"port":0`) or a failed
+   request counts as "not available".
+2. The status file `/tmp/gluetun/forwarded_port` (from the shared volume
    `data/gluetun/`).
 
 The resolved value is cached in `$STATE_DIR/gluetun_p2p_port`
@@ -60,6 +60,18 @@ ProtonVPN rotates the port on reconnect. `port_watch_loop` polls every
 from `active_p2p_port`, it stops the engine and the supervisor respawns it
 bound to the new port. In-flight streams are interrupted for a few
 seconds.
+
+## NAT-PMP renewal hiccups
+
+Gluetun refreshes the NAT-PMP mapping every 45 s for a 60 s lease.
+ProtonVPN gateways occasionally refuse a renewal datagram; the pinned
+Gluetun build retries refused datagrams like timeouts
+([gluetun #3464](https://github.com/passteque/gluetun/pull/3464)), so a
+single hiccup no longer tears the mapping down and the announced port
+stays stable. An outage that outlasts the retry window (persistent
+`i/o timeout`) clears the port until the next successful negotiation,
+which recovers on its own. See
+[41 Common issues](../40-49-troubleshooting/41-common-issues.md).
 
 ## Verify
 
