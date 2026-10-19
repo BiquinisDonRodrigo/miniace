@@ -13,7 +13,7 @@ IPNS resolution can take minutes.
 3. **acestream** starts the playlist server immediately and waits for the
    forwarded port. The engine only starts once a port exists.
 4. The first sync cycle may fail with DNS errors while the VPN comes up;
-   it retries every 60 s until at least one source is fetched.
+   failed sources are retried every 60 s until they succeed.
 
 ## Verification checklist
 

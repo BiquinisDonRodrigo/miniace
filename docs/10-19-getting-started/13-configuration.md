@@ -12,9 +12,9 @@ gitignored; `.env.example` is the tracked template.
 | `PROTON_COUNTRIES` | `Netherlands` | Comma-separated list of countries for server selection. |
 | `ACESTREAM_HTTP_PORT` | `6878` | Host port published for the engine HTTP API. The container port stays 6878. |
 | `PLAYLISTS_PORT` | `8080` | Host port published for the playlist server. The container port stays 8080. |
-| `SYNC_INTERVAL` | `3600` | Seconds between playlist refreshes. |
+| `SYNC_INTERVAL` | `3600` | Seconds between playlist refreshes. Sources that fail are retried every `RETRY_INTERVAL` (60 s) until the next cycle. |
 | `IPFS_GATEWAY` | `http://kubo:48080` | Local Kubo gateway used to resolve `ipns://` / `ipfs://` origins. |
-| `IPFS_FALLBACK_GATEWAYS` | `https://ipfs.filebase.io,https://ipfs.io,https://dweb.link,https://w3s.link` | Public gateways tried when the local one fails or is slow. |
+| `IPFS_FALLBACK_GATEWAYS` | `https://ipfs.filebase.io` | Public gateways tried when the local one fails or is slow. ipfs.io, dweb.link and w3s.link were retired on 2026-09-21; any fallback must serve both `/ipfs/` and `/ipns/` paths. |
 | `TZ` | `Europe/Madrid` | Timezone of the containers (logs). |
 | `DOCKER_SUBNET` | `172.30.0.0/24` | Compose network subnet. Must not overlap the VPN tunnel range. |
 

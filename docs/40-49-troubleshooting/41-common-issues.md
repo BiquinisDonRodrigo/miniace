@@ -61,6 +61,10 @@ and `data/playlists/` is empty.
 clones), all sources failed to fetch, or the first IPNS resolution has not
 finished (it can take minutes on a fresh Kubo repo).
 
+`data/sources.json` is re-read on every sync cycle and every retry
+(`RETRY_INTERVAL`, 60 s) — including when the file is missing or invalid —
+so creating or fixing it applies without a restart.
+
 **Check:**
 
 ```sh
@@ -69,6 +73,21 @@ docker compose logs kubo
 docker compose restart acestream    # force a sync cycle
 ```
 
+## Public gateway fallbacks fail (HTTP 429/403)
+
+**Symptom:** the sync log shows fallback fetches answered with
+`HTTP Error 429` or `HTTP Error 403` (or a redirect to `dweb.link`), and
+only the local Kubo gateway works.
+
+**Cause:** ipfs.io, dweb.link and w3s.link were retired on 2026-09-21.
+w3s.link only redirects to the retired dweb.link. miniace now defaults to
+`https://ipfs.filebase.io`, but an `.env` copied from an older version
+still carries the old list (its value overrides the new default).
+
+**Fix:** edit `IPFS_FALLBACK_GATEWAYS` in `.env`, remove the retired
+gateways and re-create the stack (`docker compose up -d`). Any gateway you
+add must serve both `/ipfs/` and `/ipns/` paths.
+
 ## DNS errors at first boot
 
 **Symptom:** `Temporary failure in name resolution` during the first sync
@@ -76,8 +95,9 @@ cycles.
 
 **Cause:** the sync starts before Gluetun has the VPN/DNS ready.
 
-**Fix:** none needed. The loop retries every `RETRY_INTERVAL` (60 s) until
-at least one source is fetched.
+**Fix:** none needed. Failed sources are retried every `RETRY_INTERVAL`
+(60 s) — the whole cycle if `sources.json` itself cannot be read — until
+they succeed.
 
 ## kubo unreachable from acestream
 

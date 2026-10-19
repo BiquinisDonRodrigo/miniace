@@ -67,11 +67,14 @@ total connection limit requires a restart after an API update.
   the Kubo gateway with public fallbacks, validates `#EXTM3U`, rewrites
   AceStream entries to
   `http://__MINIACE_HOST__:<PUBLIC_PORT>/ace/getstream?id=<hash>` and
-  atomically writes `PLAYLISTS_DIR/<name>.m3u` plus `all.m3u`.
-- Runs a sync thread (`SYNC_INTERVAL`, retrying after `RETRY_INTERVAL`
-  when a cycle fetches nothing) and a `ThreadingHTTPServer` on `HTTP_PORT`
-  (8080) that substitutes `__MINIACE_HOST__` with the request's `Host`
-  header per request.
+  atomically writes `PLAYLISTS_DIR/<name>.m3u`. Each source is refreshed
+  independently; a failure never aborts the others.
+- Rebuilds `all.m3u` from the latest `<name>.m3u` of every configured
+  source, so a source that failed keeps its last known channels.
+- Runs a sync thread (full cycle every `SYNC_INTERVAL`, failed sources
+  retried every `RETRY_INTERVAL` until the next full cycle) and a
+  `ThreadingHTTPServer` on `HTTP_PORT` (8080) that substitutes
+  `__MINIACE_HOST__` with the request's `Host` header per request.
 
 ## Build and test locally
 

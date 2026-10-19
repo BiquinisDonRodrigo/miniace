@@ -41,8 +41,8 @@ for the container to exist, not for the VPN to be ready. The stack is
 designed for that:
 
 - the engine supervisor polls Gluetun until a forwarded port appears;
-- the sync loop retries every `RETRY_INTERVAL` (60 s) until at least one
-  source is fetched.
+- the sync loop retries failed sources every `RETRY_INTERVAL` (60 s) until
+  the next full cycle.
 
 ## Inside the acestream container
 

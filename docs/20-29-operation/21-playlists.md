@@ -17,20 +17,25 @@ A JSON array of objects; `nombre` / `origen` are accepted as aliases of
 ]
 ```
 
-- `name` becomes the output file (`<name>.m3u`). Use simple names without
-  slashes or spaces.
+- `name` becomes the output file (`<name>.m3u`). It must not contain `/`
+  or a null byte, must not start with a dot, and `all` is reserved for the
+  merged playlist; spaces and accents are fine. Duplicated names are
+  skipped (the first one wins).
 - `origin` may be:
   - `ipns://<key>/<path>` — resolved through the local Kubo gateway
     (`IPFS_GATEWAY`, default `http://kubo:48080`), then through the public
     gateways listed in `IPFS_FALLBACK_GATEWAYS`.
   - `ipfs://<cid>/<path>` — same resolution path.
-  - `http(s)://…` — fetched directly, with no fallback list.
-- The file is re-read on **every sync cycle**, so edits apply without a
-  restart. To force a refresh immediately:
-  `docker compose restart acestream`.
+  - `http(s)://…` — fetched directly. Gateway-style URLs (`/ipfs/…` or
+    `/ipns/…` paths, or `<root>.ipfs|ipns.<host>` subdomains) also go
+    through the local Kubo gateway and the fallback list when the origin
+    gateway itself does not answer.
+- The file is re-read on **every sync cycle** (and every retry), so edits
+  apply without a restart even while failed sources are being retried. To
+  force a refresh immediately: `docker compose restart acestream`.
 - A source that fails to fetch keeps its previous file; the other sources
-  still update.
-- A payload is only accepted if it starts with `#EXTM3U`.
+  still update, and the failed ones are retried (only them) every
+  `RETRY_INTERVAL` (60 s) until the next full cycle.
 
 ## Generated files
 
@@ -39,7 +44,7 @@ Under `data/playlists/` (gitignored):
 | File | Content |
 |---|---|
 | `<name>.m3u` | One source, rewritten |
-| `all.m3u` | All successfully fetched sources merged, first header kept |
+| `all.m3u` | Every configured source, from its latest successful fetch; first header kept |
 
 Every AceStream entry — bare infohash, `acestream://<hash>` or
 `http(s)://…?id=<hash>` — is rewritten to

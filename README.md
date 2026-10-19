@@ -118,9 +118,11 @@ Sources live in `data/sources.json`, re-read on every sync cycle:
 - AceStream entries are rewritten per request to
   `http://<request-host>:6878/ace/getstream?id=<hash>`, where the host is
   the one you used to fetch the playlist. Other URLs are preserved.
-- Output: `data/playlists/<name>.m3u` plus a merged `all.m3u`, served at
+- Output: `data/playlists/<name>.m3u` plus a merged `all.m3u` (every
+  configured source, from its latest successful fetch), served at
   `http://<HOST>:8080/`. IPNS resolves through the local Kubo gateway, with
-  public gateways as fallback.
+  `https://ipfs.filebase.io` as fallback (ipfs.io, dweb.link and w3s.link
+  were retired on 2026-09-21). Failed sources are retried every 60 s.
 
 Details: [21 Playlists](docs/20-29-operation/21-playlists.md).
 
@@ -218,7 +220,7 @@ Details: [53 CI/CD](docs/50-59-development/53-ci-cd.md).
   fresh Kubo repo. Check `docker compose logs kubo`; force a refresh with
   `docker compose restart acestream`.
 - **DNS errors at first boot**: the sync starts before the VPN is ready;
-  it retries every 60 s until one source is refreshed.
+  failed sources are retried every 60 s until they succeed.
 - **kubo unreachable from acestream**: `FIREWALL_OUTBOUND_SUBNETS` must
   match the compose subnet (`DOCKER_SUBNET`).
 - **Streams fail from clients but work locally**: the client must reach
