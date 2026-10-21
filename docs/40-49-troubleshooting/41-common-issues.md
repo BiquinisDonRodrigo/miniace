@@ -73,6 +73,58 @@ docker compose logs kubo
 docker compose restart acestream    # force a sync cycle
 ```
 
+## Stream does not play or the content id cannot be resolved
+
+**Symptoms:** the playlist loads and clients receive the rewritten URL, but
+playback fails or stalls, and the acestream log shows a catalog or
+descriptor resolution failure.
+
+**Cause:** outpace is an independent reimplementation of the public
+AceStream live path. It resolves content ids through the signed catalog and
+targets public, unencrypted live streams; premium/account streams and some
+legacy or unusual transports are out of scope. A catalog outage or a stale
+content id also fails closed.
+
+**Check:**
+
+```sh
+docker compose exec acestream curl -fsS http://127.0.0.1:6878/healthz
+docker compose exec acestream curl -s 'http://127.0.0.1:6878/server/api?method=get_version'
+docker compose logs acestream | grep -iE 'catalog|descriptor|resolution|error'
+```
+
+Test the id directly on the native route (the compatibility route is
+`/ace/getstream`):
+
+```sh
+curl -v 'http://127.0.0.1:6878/streams/ace/cid:<content-id>.ts' -o /dev/null
+```
+
+If the native route works but the playlist URL does not, fetch the playlist
+with the same host the client uses and verify the rewritten selector. Bare
+`acestream://` entries become `id=`; sources that used `infohash=` keep
+`infohash=`.
+
+## Old `ACESTREAM_*` tuning has no effect
+
+**Symptom:** changing `ACESTREAM_MAX_CONNECTIONS`, `ACESTREAM_CACHE_LIMIT_GB`,
+`ACESTREAM_UPLOAD_LIMIT`, slot-manager variables or `ACESTREAM_EXTRA_FLAGS`
+does nothing after upgrading.
+
+**Cause:** miniace now runs outpace on every architecture. Those variables
+configured the official engine and are no longer read. The current knobs are
+`OUTPACE_*`; see
+[13 Configuration](../10-19-getting-started/13-configuration.md#outpace-tuning)
+and the migration table there.
+
+## 16 KiB-page ARM kernels
+
+outpace does not embed the Android libraries that break some third-party ARM
+AceStream images on 16 KiB-page kernels, but upstream has not formally
+qualified that configuration. If the engine starts but playback fails on a
+16 KiB-page kernel, test the same stream on a 4 KiB-page host before filing
+a bug.
+
 ## Public gateway fallbacks fail (HTTP 429/403)
 
 **Symptom:** the sync log shows fallback fetches answered with

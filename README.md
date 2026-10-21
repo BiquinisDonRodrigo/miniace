@@ -1,26 +1,31 @@
 # miniace
 
-[![Build acestream image](https://github.com/BiquinisDonRodrigo/miniace/actions/workflows/docker.yml/badge.svg)](https://github.com/BiquinisDonRodrigo/miniace/actions/workflows/docker.yml)
+[![Build image](https://github.com/BiquinisDonRodrigo/miniace/actions/workflows/docker.yml/badge.svg)](https://github.com/BiquinisDonRodrigo/miniace/actions/workflows/docker.yml)
 
-Dockerized [AceStream](https://www.acestream.org/) engine behind a ProtonVPN
-WireGuard tunnel with **dynamic P2P port forwarding**, plus **IPFS/IPNS M3U
-playlist** support for IPTV clients (TiviMate, VLC, Jellyfin, Kodi...).
+Dockerized [AceStream](https://www.acestream.org/) P2P engine behind a
+ProtonVPN WireGuard tunnel with **dynamic P2P port forwarding**, plus
+**IPFS/IPNS M3U playlist** support for IPTV clients (TiviMate, VLC,
+Jellyfin, Kodi...).
+
+The engine is [outpace](https://github.com/jamezrin/outpace), an
+open-source Rust implementation of the public AceStream live path. The
+image is multi-arch: `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
 
 Three containers, one custom image:
 
 | Service   | Image | Role |
 |-----------|-------|------|
 | gluetun   | `qmcgaw/gluetun` (official, digest-pinned) | VPN tunnel, NAT-PMP port forwarding, published ports |
-| acestream | `ghcr.io/biquinisdonrodrigo/miniace:latest` (built by CI) | AceStream 3.2.11 engine + port supervisor + IPNS→M3U sync + playlist HTTP server |
+| acestream | `ghcr.io/biquinisdonrodrigo/miniace:latest` (built by CI) | outpace engine + port supervisor + IPNS→M3U sync + playlist HTTP server |
 | kubo      | `ipfs/kubo:v0.43.0` (official) | Local IPFS node resolving the `ipns://` playlists |
 
 ```
 IPTV client (TiviMate / VLC / Jellyfin)
-   │  stream:    http://<HOST>:6878/ace/getstream?id=<infohash>
+   │  stream:    http://<HOST>:6878/ace/getstream?id=<hash>
    │  playlists: http://<HOST>:8080/{<source>,all}.m3u
    ▼
 [gluetun] ──netns──► [acestream]
-                        │  engine P2P bound to the port announced by ProtonVPN
+                        │  outpace P2P bound to the port announced by ProtonVPN
                         ▼
                      [kubo] :48080 (IPNS resolution, Docker network only)
 ```
@@ -47,14 +52,14 @@ IPTV client (TiviMate / VLC / Jellyfin)
 ## Features
 
 - The engine only binds the P2P port ProtonVPN announces and rebinds on rotation.
-- Every AceStream engine option is configurable from `.env`; empty value = factory default.
+- Native images for x86_64, arm64 and armv7 — no emulation.
 - IPFS/IPNS playlists with per-request host rewriting (LAN and Tailscale at once).
 - One custom image; gluetun and kubo run official images untouched.
 
 ## Requirements
 
-- Docker Engine + Docker Compose v2 on an x86_64 host. The official engine is
-  amd64 only; ARM hosts are not supported.
+- Docker Engine + Docker Compose v2 on x86_64, arm64 or armv7 (armhf). The
+  same `latest` tag resolves to the right architecture.
 - A ProtonVPN paid plan (Plus/Unlimited) and a WireGuard configuration
   generated at [account.proton.me/vpn/WireGuard](https://account.proton.me/vpn/WireGuard)
   with **NAT-PMP (Port Forwarding)** enabled.
@@ -94,7 +99,7 @@ resolution on a fresh Kubo repo can take minutes.
 
 Copy `.env.example` to `.env`. The only required value is `WG_PRIVATE_KEY`.
 Everything else ships with working defaults: ports 6878/8080, hourly
-playlist sync and engine budgets tuned for sharing while you watch.
+playlist sync and outpace tuned for sharing while you watch.
 
 Each variable in [.env.example](.env.example) is documented by its own
 comment: effect, unit, and what an empty value does. The full reference is
@@ -116,8 +121,10 @@ Sources live in `data/sources.json`, re-read on every sync cycle:
 - Origins: `ipns://`, `ipfs://` or `http(s)://` URLs (`nombre`/`origen` are
   accepted as aliases of `name`/`origin`).
 - AceStream entries are rewritten per request to
-  `http://<request-host>:6878/ace/getstream?id=<hash>`, where the host is
-  the one you used to fetch the playlist. Other URLs are preserved.
+  `http://<request-host>:6878/ace/getstream?<selector>=<hash>`, where the
+  host is the one you used to fetch the playlist. The selector (`id`,
+  `content_id` or `infohash`) is preserved; bare and `acestream://` entries
+  become `id=`. Other URLs are preserved.
 - Output: `data/playlists/<name>.m3u` plus a merged `all.m3u` (every
   configured source, from its latest successful fetch), served at
   `http://<HOST>:8080/`. IPNS resolves through the local Kubo gateway, with
@@ -132,9 +139,8 @@ Details: [21 Playlists](docs/20-29-operation/21-playlists.md).
   forwarded port and exposes it on a loopback control server (`:8001`) and
   a status file.
 - **acestream** shares gluetun's network namespace. The entrypoint resolves
-  the announced port, starts the engine bound to it, applies client
-  settings through the local API and restarts on port rotation. Without a
-  forwarded port the engine does not start.
+  the announced port, starts outpace bound to it and restarts it on port
+  rotation. Without a forwarded port the engine does not start.
 - **sync.py** fetches the sources, rewrites the entries and serves the
   playlists on `:8080`.
 - **kubo** resolves IPNS through its gateway on `:48080` (Docker network
@@ -149,14 +155,15 @@ Deep dive: [31 Architecture](docs/30-39-architecture/31-architecture.md) ·
 |------|-----|
 | Playlist (all sources merged) | `http://<HOST>:8080/all.m3u` |
 | Playlist (single source) | `http://<HOST>:8080/<name>.m3u` |
-| Single stream | `http://<HOST>:6878/ace/getstream?id=<infohash>` |
+| Single stream | `http://<HOST>:6878/ace/getstream?id=<hash>` |
 
 The client must reach the engine port (`ACESTREAM_HTTP_PORT`) on the same
 host it used to fetch the playlist. Verify the stack at any time:
 
 ```sh
 docker compose logs gluetun | grep -i "forwarded port"      # announced port N
-docker compose logs acestream | grep "P2P on forwarded"     # engine bound to N
+docker compose logs acestream | grep "starting outpace"     # engine bound to N
+docker compose exec acestream curl -fsS http://127.0.0.1:6878/healthz
 docker compose exec gluetun ss -lntup | grep -E "6878|<N>"  # both listening
 ```
 
@@ -170,7 +177,7 @@ data/
 ├── playlists/      # generated .m3u files (yours, gitignored)
 ├── gluetun/        # forwarded-port status file (runtime)
 ├── ipfs/           # Kubo repository (runtime)
-└── acestream/      # engine state + disk cache (runtime)
+└── acestream/      # outpace identity + cache (runtime)
 ```
 
 Everything lives in bind mounts under `data/` and survives container
@@ -183,23 +190,27 @@ docker compose pull
 docker compose up -d
 ```
 
-The engine cache, generated playlists and the IPFS repository persist in
+The outpace cache, generated playlists and the IPFS repository persist in
 `data/`. ProtonVPN rotates the forwarded port on every reconnect; the
 watcher detects it within `PORT_WATCH_INTERVAL_S` and restarts the engine
 so it rebinds (streams in flight are interrupted for a few seconds).
 Maintenance guide: [23 Maintenance](docs/20-29-operation/23-maintenance.md).
 
+> **Upgrading from the official-engine image?** The `ACESTREAM_*` tuning
+> variables no longer apply. See the migration table in
+> [13 Configuration](docs/10-19-getting-started/13-configuration.md#migration-from-the-official-engine).
+
 ## Build & CI
 
-`.github/workflows/docker.yml` builds `images/acestream` and publishes it
+`.github/workflows/docker.yml` builds `images/outpace` and publishes it
 to [GHCR](https://github.com/BiquinisDonRodrigo/miniace/pkgs/container/miniace):
 
 - push to `main` → `latest` + `sha-<short>`
 - tag `vX.Y.Z` → `X.Y.Z` and `X.Y`
 - pull requests → build only (no push)
 
-Only `linux/amd64` is built (the official engine is x86_64 only). To build
-locally instead of pulling:
+The manifest contains `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
+To build locally instead of pulling:
 
 ```sh
 docker compose up -d --build
@@ -225,6 +236,13 @@ Details: [53 CI/CD](docs/50-59-development/53-ci-cd.md).
   match the compose subnet (`DOCKER_SUBNET`).
 - **Streams fail from clients but work locally**: the client must reach
   `ACESTREAM_HTTP_PORT` on the host it fetched the playlist from.
+- **A stream does not play**: outpace targets public, unencrypted live
+  streams. Check the catalog/descriptor errors in the acestream log and try
+  the id on `/streams/ace/cid:<id>.ts`; see
+  [41 Common issues](docs/40-49-troubleshooting/41-common-issues.md#stream-does-not-play-or-the-content-id-cannot-be-resolved).
+- **Old `ACESTREAM_*` tuning does nothing**: those variables configured the
+  official engine; use `OUTPACE_*` now. See
+  [13 Configuration](docs/10-19-getting-started/13-configuration.md#migration-from-the-official-engine).
 
 More: [41 Common issues](docs/40-49-troubleshooting/41-common-issues.md) ·
 [42 Diagnostics](docs/40-49-troubleshooting/42-diagnostics.md).
@@ -236,8 +254,8 @@ More: [41 Common issues](docs/40-49-troubleshooting/41-common-issues.md) ·
   network namespace and is not published to the host.
 - Ports 6878/8080 are published on the host without authentication; restrict
   them with a host firewall if you do not want them LAN-wide.
-- The engine keeps a disk cache under `data/acestream/`; set
-  `ACESTREAM_CACHE_LIMIT_GB=0` for RAM caching instead.
+- The engine keeps an optional disk cache under `data/acestream/`; keep
+  `OUTPACE_CACHE_TYPE=memory` (the default) to avoid disk writes.
 
 ## Documentation
 
@@ -260,7 +278,7 @@ Full documentation lives in [`docs/`](docs/intro.md), organized with the
 | Common issues | [41](docs/40-49-troubleshooting/41-common-issues.md) |
 | Diagnostics | [42](docs/40-49-troubleshooting/42-diagnostics.md) |
 | Repository layout | [51](docs/50-59-development/51-repository-layout.md) |
-| The acestream image | [52](docs/50-59-development/52-acestream-image.md) |
+| The engine image | [52](docs/50-59-development/52-engine-image.md) |
 | CI/CD | [53](docs/50-59-development/53-ci-cd.md) |
 
 ## Legal
@@ -273,8 +291,9 @@ deploying or otherwise using this software you accept it in full.
 
 miniace is a self-hosted software project maintained under the GitHub
 handle **BiquinisDonRodrigo**. It provides Docker configuration and
-supporting code to run the AceStream engine, manage VPN connectivity and
-process playlist sources configured by the operator.
+supporting code to run outpace — an independent, open-source implementation
+of the AceStream protocol — manage VPN connectivity and process playlist
+sources configured by the operator.
 
 An **operator** is the person or organisation that deploys, configures or
 controls an instance of the software. The operator selects its sources,
@@ -305,14 +324,14 @@ retransmit it or make it available to others.
 
 ### 3. Peer-to-peer operation and third-party services
 
-AceStream and IPFS use peer-to-peer technologies. Depending on their
-operation and configuration, a deployment may receive, cache and upload
-data to other participants. Operators must account for this sharing when
-assessing their rights and obligations.
+AceStream-compatible engines and IPFS use peer-to-peer technologies.
+Depending on their operation and configuration, a deployment may receive,
+cache and upload data to other participants. Operators must account for
+this sharing when assessing their rights and obligations.
 
 Using a VPN does not grant content rights or remove legal obligations.
 
-Third-party software and services, including AceStream, Gluetun, Kubo and
+Third-party software and services, including outpace, Gluetun, Kubo and
 the VPN provider, remain subject to their respective licences, terms and
 privacy policies. Those conditions also apply where relevant components
 are included in a container image.
@@ -367,17 +386,18 @@ wherever applicable, including those protected by
 
 ### 6. Acceptance of third-party terms and licences
 
-By running or using a miniace container that includes AceStream, you
+By running or using a miniace container that includes outpace, you
 acknowledge and accept the
-[AceStream User Agreement](https://acestream.org/about/user-agreement)
-insofar as it applies to your use, subject to applicable law. Running
-AceStream inside a container does not waive or replace its applicable
-terms.
+[GNU Affero General Public License v3.0](https://github.com/jamezrin/outpace/blob/v0.5.0/LICENSE)
+insofar as it applies to outpace, and you must comply with its source-offer
+obligations when you redistribute the image. miniace does not include the
+official closed-source AceStream engine.
 
 You also agree to comply with the licences and terms applicable to the
 other software and services included in, required by or used through your
 deployment. These include:
 
+- [outpace](https://github.com/jamezrin/outpace) (AGPL-3.0-or-later).
 - [Gluetun](https://github.com/passteque/gluetun/blob/master/LICENSE) (MIT).
 - [Kubo](https://github.com/ipfs/kubo/blob/v0.43.0/LICENSE) (MIT /
   Apache-2.0).
@@ -480,14 +500,15 @@ scripts, and the repository documentation — is released under the
 | Component | Licence / terms |
 |-----------|-----------------|
 | miniace original code | [MIT](LICENSE) |
-| [AceStream](https://www.acestream.org/) engine | Proprietary — [User Agreement](https://acestream.org/about/user-agreement); official tarball, SHA256-pinned, not redistributed by this repository |
+| [outpace](https://github.com/jamezrin/outpace) engine | [AGPL-3.0-or-later](https://github.com/jamezrin/outpace/blob/v0.5.0/LICENSE); static binary from the official v0.5.0 image, digest-pinned |
 | [Gluetun](https://github.com/passteque/gluetun) | [MIT](https://github.com/passteque/gluetun/blob/master/LICENSE) |
 | [Kubo (IPFS)](https://github.com/ipfs/kubo) | [MIT / Apache-2.0](https://github.com/ipfs/kubo/blob/v0.43.0/LICENSE) |
 | `python:3.10-slim` base image and OS packages | Their respective licences |
 
 miniace is an independent project and is not affiliated with, endorsed by,
-or connected to the AceStream developers. All product names, trademarks
-and registered trademarks are the property of their respective owners.
+or connected to the AceStream developers or the outpace maintainers. All
+product names, trademarks and registered trademarks are the property of
+their respective owners.
 
 ## Acknowledgements
 
@@ -495,5 +516,7 @@ and registered trademarks are the property of their respective owners.
   port forwarding.
 - [Kubo](https://github.com/ipfs/kubo) — IPFS implementation powering the
   IPNS playlist resolution.
-- [AceStream](https://www.acestream.org/) — the P2P streaming engine this
-  stack orchestrates.
+- [outpace](https://github.com/jamezrin/outpace) — the Rust
+  AceStream-compatible engine.
+- [AceStream](https://www.acestream.org/) — the protocol and ecosystem this
+  stack interoperates with.

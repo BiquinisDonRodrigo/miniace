@@ -1,0 +1,29 @@
+# Third-party notices
+
+## outpace
+
+miniace includes the unmodified static binary of **outpace**, an independent
+implementation of the public AceStream live path.
+
+- Project: <https://github.com/jamezrin/outpace>
+- Version: v0.5.0 (2026-10-20)
+- Licence: GNU Affero General Public License v3.0 or later
+  (AGPL-3.0-or-later)
+- Corresponding source for this release:
+  <https://github.com/jamezrin/outpace/tree/v0.5.0>
+- Licence text included in the image at
+  `/usr/share/doc/outpace/LICENSE`
+
+The binary is copied from the official multi-arch image
+`ghcr.io/jamezrin/outpace@sha256:c15f70186cc797222e7feed2a697c40d2498849b2ef11c4d3c6fe6f0d51e1624`
+(v0.5.0). It is not modified by miniace.
+
+If you redistribute a miniace image that contains outpace, comply with the
+AGPL: keep the licence notice and provide access to the corresponding
+source for the version you distribute.
+
+## Other components
+
+The container images also include Gluetun, Kubo and operating-system
+packages under their respective licences. See the "Legal" and "License"
+sections of [README.md](README.md) for details.

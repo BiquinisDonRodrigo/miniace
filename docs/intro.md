@@ -1,14 +1,15 @@
 # miniace documentation
 
-miniace runs the [AceStream](https://www.acestream.org/) P2P engine behind a
-ProtonVPN WireGuard tunnel with **dynamic P2P port forwarding**, and publishes
-**IPFS/IPNS M3U playlists** to IPTV clients. The whole stack is three
-containers driven by Docker Compose:
+miniace runs [outpace](https://github.com/jamezrin/outpace), an
+AceStream-compatible P2P engine, behind a ProtonVPN WireGuard tunnel with
+**dynamic P2P port forwarding**, and publishes **IPFS/IPNS M3U playlists**
+to IPTV clients. The whole stack is three containers driven by Docker
+Compose:
 
 | Service | Image | Role |
 |---|---|---|
 | gluetun | `qmcgaw/gluetun` (official) | VPN tunnel, NAT-PMP port forwarding, published ports |
-| acestream | `ghcr.io/biquinisdonrodrigo/miniace` (built by CI) | AceStream engine + port supervisor + IPNS→M3U sync + playlist server |
+| acestream | `ghcr.io/biquinisdonrodrigo/miniace` (built by CI) | outpace engine + port supervisor + IPNS→M3U sync + playlist server |
 | kubo | `ipfs/kubo` (official) | Local IPFS node resolving `ipns://` playlists |
 
 ## Quick start
@@ -67,7 +68,7 @@ each area.
 | ID | Document |
 |----|----------|
 | 51 | [Repository layout](50-59-development/51-repository-layout.md) |
-| 52 | [The acestream image](50-59-development/52-acestream-image.md) |
+| 52 | [The engine image](50-59-development/52-engine-image.md) |
 | 53 | [CI/CD](50-59-development/53-ci-cd.md) |
 
 ## How this documentation is organized

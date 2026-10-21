@@ -11,7 +11,7 @@ IPNS resolution can take minutes.
 2. **kubo** initializes `data/ipfs/` and binds its gateway to
    `0.0.0.0:48080`.
 3. **acestream** starts the playlist server immediately and waits for the
-   forwarded port. The engine only starts once a port exists.
+   forwarded port. The outpace engine only starts once a port exists.
 4. The first sync cycle may fail with DNS errors while the VPN comes up;
    failed sources are retried every 60 s until they succeed.
 
@@ -33,7 +33,13 @@ docker compose logs gluetun | grep -i "forwarded port"
 The engine is bound to that same port and the playlist server is up:
 
 ```sh
-docker compose logs acestream | grep -E "P2P on forwarded|playlists: serving"
+docker compose logs acestream | grep -E "starting outpace|inbound seeding|playlists: serving"
+```
+
+The engine reports healthy:
+
+```sh
+docker compose exec acestream curl -fsS http://127.0.0.1:6878/healthz
 ```
 
 Both are listening inside the shared network namespace (replace `<PORT>`

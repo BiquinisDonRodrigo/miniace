@@ -2,13 +2,13 @@
 
 ```text
 IPTV client (TiviMate / VLC / Jellyfin)
-   │  stream:    http://<HOST>:6878/ace/getstream?id=<infohash>
+   │  stream:    http://<HOST>:6878/ace/getstream?id=<hash>
    │  playlists: http://<HOST>:8080/{<source>,all}.m3u
    ▼
 [gluetun] ──netns──► [acestream]
-                        │  engine P2P bound to the port announced by ProtonVPN
-                        ▼
-                     [kubo] :48080 (IPNS resolution, Docker network only)
+                         │  outpace P2P bound to the port announced by ProtonVPN
+                         ▼
+                      [kubo] :48080 (IPNS resolution, Docker network only)
 ```
 
 ## Containers
@@ -16,7 +16,7 @@ IPTV client (TiviMate / VLC / Jellyfin)
 | Service | Image | Responsibility |
 |---|---|---|
 | gluetun | `qmcgaw/gluetun` (official, digest-pinned) | WireGuard tunnel to ProtonVPN, NAT-PMP port forwarding, control server on `:8001`, publishes `6878` / `8080`, firewall |
-| acestream | `ghcr.io/biquinisdonrodrigo/miniace:latest` | AceStream 3.2.11 engine, port supervisor, IPNS→M3U sync, playlist HTTP server |
+| acestream | `ghcr.io/biquinisdonrodrigo/miniace:latest` | outpace engine, port supervisor, IPNS→M3U sync, playlist HTTP server |
 | kubo | `ipfs/kubo:v0.43.0` (official) | Local IPFS node; gateway exposed on `0.0.0.0:48080` |
 
 ## Key design decisions
@@ -33,6 +33,9 @@ IPTV client (TiviMate / VLC / Jellyfin)
   official images; the single exception is a one-line init script that
   moves the Kubo gateway from localhost to `0.0.0.0:48080` so the
   acestream container can reach it.
+- **The image is multi-arch.** The same tag is published for `linux/amd64`,
+  `linux/arm64` and `linux/arm/v7`; the engine binary comes from the official
+  outpace image and is identical across architectures.
 
 ## Startup order
 
@@ -50,6 +53,10 @@ designed for that:
 
 | Process | Role |
 |---|---|
-| `engine.sh` → `start_engine` | Supervises the engine: resolves the forwarded port, spawns the engine, restarts on crash or rotation |
-| `engine.sh` → `port_watch_loop` | Polls Gluetun every `PORT_WATCH_INTERVAL_S` and stops the engine when the port rotates |
+| `outpace.sh` → `start_engine` | Supervises outpace: resolves the forwarded port, spawns `outpace serve`, restarts on crash or rotation |
+| `outpace.sh` → `port_watch_loop` | Polls Gluetun every `PORT_WATCH_INTERVAL_S` and stops the engine when the port rotates |
 | `sync.py` | Foreground process: playlist sync loop + HTTP server; when it exits, the container shuts down |
+
+The supervisor probes `GET /healthz` on loopback to decide whether the
+engine is alive. It does not depend on the outpace PID, so a crashed daemon
+is detected even if a shell wrapper is still present.

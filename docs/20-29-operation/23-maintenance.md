@@ -13,20 +13,20 @@ To build the `acestream` image locally instead:
 docker compose up -d --build --pull
 ```
 
-`data/` (sources, playlists, engine state, IPFS repository) is untouched by
-updates.
+`data/` (sources, playlists, engine identity, IPFS repository) is untouched
+by updates.
 
 ## Logs
 
 ```sh
-docker compose logs -f acestream     # engine supervisor + playlist sync
+docker compose logs -f acestream     # outpace + engine supervisor + playlist sync
 docker compose logs -f gluetun       # VPN, NAT-PMP, firewall
 docker compose logs -f kubo          # IPFS node
 ```
 
-The engine also writes a rotating log (10 MB, 1 backup) to
-`data/acestream/state/acestream.log`. The playlist sync logs to the
-container's stdout.
+outpace logs to the container's stdout; there is no rotating engine log file
+inside the container. Compose caps the `acestream` json-file log at 10 MB
+with 3 files.
 
 ## Health
 
@@ -36,6 +36,7 @@ The `acestream` container is healthy while the playlist server answers on
 ```sh
 docker compose ps
 curl -fsS http://localhost:8080/ >/dev/null && echo "playlists OK"
+docker compose exec acestream curl -fsS http://127.0.0.1:6878/healthz
 ```
 
 ## Backups
@@ -47,19 +48,25 @@ Only user data matters:
 | `data/sources.json` | **Not in git** (the whole `data/` tree is gitignored). Back it up. |
 | `data/ipfs/` | Kubo repository and node identity. Losing it forces a slow IPNS re-resolution from the network. |
 | `data/playlists/` | Regenerated automatically. |
-| `data/acestream/` | Engine state and cache; the cache is rebuilt on demand. |
+| `data/acestream/outpace/identity.seed` | outpace node identity. |
+| `data/acestream/outpace/cache/` | Ephemeral; rebuilt on demand. |
 
 ## Cache
 
-The engine disk cache retains pieces for upload to peers. It is limited to
-`ACESTREAM_CACHE_LIMIT_GB` (default 5 GB). Set it to `0` to use RAM for the
-live/VOD stream cache, or clear the disk cache manually:
+Retained pieces are configured with `OUTPACE_CACHE_TYPE` (`memory` by
+default, or `disk`), `OUTPACE_SEED_STORE_BYTES` and
+`OUTPACE_SEED_RETENTION_SECS`; see
+[13 Configuration](../10-19-getting-started/13-configuration.md#stream-cache).
+The budget is per active stream, not a global quota. To clear the on-disk
+cache manually:
 
 ```sh
 docker compose stop acestream
-rm -rf data/acestream/cache/*
+rm -rf data/acestream/outpace/cache/*
 docker compose start acestream
 ```
+
+outpace writes its `.outpace-cache` sentinel on the next disk-mode start.
 
 ## Port rotations
 

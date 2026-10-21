@@ -46,11 +46,14 @@ Under `data/playlists/` (gitignored):
 | `<name>.m3u` | One source, rewritten |
 | `all.m3u` | Every configured source, from its latest successful fetch; first header kept |
 
-Every AceStream entry — bare infohash, `acestream://<hash>` or
-`http(s)://…?id=<hash>` — is rewritten to
-`http://<request-host>:<PUBLIC_PORT>/ace/getstream?id=<hash>`, where
+Every AceStream entry — bare hash, `acestream://<hash>`, or an
+`http(s)://…?id=…` / `?content_id=…` / `?infohash=…` URL — is rewritten to
+`http://<request-host>:<PUBLIC_PORT>/ace/getstream?<selector>=<hash>`, where
 `<request-host>` is the host used by the client that fetched the playlist.
-All other URLs (regular HLS streams, etc.) are left untouched.
+The selector is preserved on purpose: outpace treats `id=` / `content_id=`
+as a content id and `infohash=` as a bare swarm hash. Bare and
+`acestream://` entries become `id=`. All other URLs (regular HLS streams,
+etc.) are left untouched.
 
 Because the rewrite happens **per request**, the same file works from the
 LAN and from Tailscale at once: fetched via

@@ -11,7 +11,7 @@ announced by ProtonVPN.** There is no fallback to a static port (e.g.
 
 ## How the port is resolved
 
-`query_gluetun_port()` in `images/acestream/engine.sh` tries, in order:
+`query_gluetun_port()` in `images/outpace/outpace.sh` tries, in order:
 
 1. Gluetun control API `GET /v1/portforward` (loopback `:8001` inside the
    shared network namespace). A missing port (`"port":0`) or a failed
@@ -25,33 +25,26 @@ in `$STATE_DIR/active_p2p_port`.
 
 ## Supervision
 
-The supervisor probes the HTTP API for readiness instead of blocking on
-the launcher PID, supporting both foreground and daemonizing launchers:
+`start_engine` spawns `outpace serve` with:
 
-- Engine flags use `--flag=value`; the native bootstrap parses performance
-  preferences, and the client parses HTTP/P2P options:
-  `--client-console --bind-all --disable-sentry --log-stdout
-  --log-stdout-level=info --log-file=<state>/acestream.log --vod-buffer=30
-  --http-port=<API> --port=<forwarded> --state-dir=… --cache-dir=…`.
-  `build_engine_flags` also adds cache backend/size, the rate limits and the
-  [upload-first profile](../10-19-getting-started/13-configuration.md#upload-first-profile)
-  (`--upload-limit`, `--max-connections=2000 --max-peers=100
-  --max-peers-limit=500 --startup-max-peers=100 --startup-upload-slots=50
-  --fix-upload-slots=1 --slots-manager-use-cpu-limit=0` by default), plus any
-  `ACESTREAM_EXTRA_FLAGS` tokens appended last (the last occurrence wins;
-  managed options are rejected by validation). See
-  [13 Configuration](../10-19-getting-started/13-configuration.md#engine-option-surface)
-  for the full variable-to-flag map.
-  Arguments are passed as an array so paths containing spaces remain intact.
-- The supervisor allows up to 60 seconds for HTTP readiness. Once ready,
-  `configure_engine.py` applies the client settings through the local API;
-  saved changes cause one restart to load the native connection budget.
-  Settings are verified again after the restart. A failed configuration
-  attempt also restarts before retrying, including after a partial update.
-- Orphan daemons from previous runs are swept before each start (they keep
+- `OUTPACE_PEER_LISTEN=0.0.0.0:<forwarded>` — the announced P2P port;
+- `OUTPACE_BIND=0.0.0.0:6878` — the HTTP API;
+- `OUTPACE_EXPERIMENTAL_ACE_COMPAT=1` — the `/ace/getstream` contract used
+  by the generated playlists;
+- `OUTPACE_ENABLE_PORT_MAPPING=0` — Gluetun owns the NAT-PMP mapping;
+- the `OUTPACE_*` tuning documented in
+  [13 Configuration](../10-19-getting-started/13-configuration.md#outpace-tuning).
+
+Readiness is `GET http://127.0.0.1:6878/healthz`, polled for up to 60
+seconds. The supervisor does not block on the launcher PID, so a foreground
+or daemonizing process is handled the same way.
+
+- Orphan processes from previous runs are swept before each start (they keep
   holding the P2P port and wedge fresh starts).
 - Crashes back off exponentially (3 → 60 s); restarts caused by a port
   rotation respawn immediately.
+- There is no settings API or post-start settings sync: outpace reads its
+  configuration from the environment once, at process start.
 
 ## Rotation watcher
 
@@ -76,9 +69,10 @@ which recovers on its own. See
 ## Verify
 
 ```sh
-docker compose logs gluetun | grep -i "forwarded port"       # announced port N
-docker compose logs acestream | grep "P2P on forwarded"      # engine bound to N
-docker compose exec acestream ss -lntup | grep -E "6878|<N>" # both listening
+docker compose logs gluetun | grep -i "forwarded port"            # announced port N
+docker compose logs acestream | grep "starting outpace"           # engine bound to N
+docker compose exec acestream curl -fsS http://127.0.0.1:6878/healthz
+docker compose exec acestream ss -lntup | grep -E "6878|<N>"      # both listening
 docker compose exec acestream curl -s http://127.0.0.1:8001/v1/portforward
 ```
 

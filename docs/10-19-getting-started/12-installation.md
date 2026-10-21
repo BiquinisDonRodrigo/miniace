@@ -64,12 +64,15 @@ docker compose pull
 docker compose up -d
 ```
 
-The engine cache, generated playlists and the IPFS repository live in
+The outpace data, generated playlists and the IPFS repository live in
 `data/` (bind mounts) and survive recreates.
+
+The same `latest` tag is published for amd64, arm64 and armv7; Docker picks
+the matching manifest for the host.
 
 ## Uninstall
 
 ```sh
 docker compose down
-rm -rf data/    # optional: deletes playlists, sources, engine cache and IPFS repo
+rm -rf data/    # optional: deletes playlists, sources, outpace data and IPFS repo
 ```
