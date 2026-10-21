@@ -1,4 +1,4 @@
-name: Build acestream image
+name: Build engine image
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
     tags: ["v*"]
   pull_request:
     paths:
-      - "images/acestream/**"
+      - "images/outpace/**"
       - ".github/workflows/docker.yml"
   workflow_dispatch:
 
@@ -25,6 +25,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
@@ -48,14 +50,15 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
           labels: |
             org.opencontainers.image.title=miniace
-            org.opencontainers.image.description=AceStream engine + Gluetun port supervision + IPNS playlist sync
+            org.opencontainers.image.description=outpace engine + Gluetun port supervision + IPNS playlist sync
+            org.opencontainers.image.licenses=MIT AND AGPL-3.0-or-later
             org.opencontainers.image.source=https://github.com/BiquinisDonRodrigo/miniace
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: images/acestream
-          platforms: linux/amd64
+          context: images/outpace
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
