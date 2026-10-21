@@ -1,6 +1,9 @@
 # Environment
 .env
 
+# WireGuard / VPN configuration files (contain private keys)
+*.conf
+
 # Data directory: sources.json, generated playlists and runtime state
 data/*
 
