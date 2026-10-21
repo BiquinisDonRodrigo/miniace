@@ -1,0 +1,17 @@
+miniace engine image
+====================
+
+This image contains outpace, an independent implementation of the public
+AceStream live path.
+
+  Project:  https://github.com/jamezrin/outpace
+  Version:  v0.5.0
+  Licence:  AGPL-3.0-or-later
+  Source:   https://github.com/jamezrin/outpace/tree/v0.5.0
+
+The outpace binary is unmodified and is copied from the official multi-arch
+image pinned in the Dockerfile. The licence text is installed at
+/usr/share/doc/outpace/LICENSE.
+
+miniace's own scripts in /opt/miniace are MIT-licensed; see the project
+repository for details.

@@ -91,12 +91,15 @@ log = logging.getLogger("miniace")
 stop_event = threading.Event()
 
 
-def extract_infohash(entry):
-    """Return the 40-hex AceStream infohash encoded in a playlist URL.
+def extract_ace_selector(entry):
+    """Return (selector, hash) for an AceStream playlist entry, else None.
 
     Understands bare hashes, acestream:// links and http(s):// URLs that
-    carry the hash in an id/infohash/content_id query parameter. Returns
-    None for anything else (regular HLS/HTTP streams are left untouched).
+    carry the hash in an id/infohash/content_id query parameter. The
+    selector is preserved so outpace keeps its semantic distinction:
+    id/content_id address a content id, while infohash addresses a bare
+    swarm hash. Returns None for anything else (regular HLS/HTTP streams
+    are left untouched).
     """
     entry = entry.strip()
     if not entry or entry.startswith("#"):
@@ -104,7 +107,7 @@ def extract_infohash(entry):
     lower = entry.lower()
     if lower.startswith("acestream://"):
         match = INFOHASH_RE.search(entry[len("acestream://"):])
-        return match.group(0).lower() if match else None
+        return ("id", match.group(0).lower()) if match else None
     if lower.startswith(("http://", "https://")):
         query = urllib.parse.parse_qs(urllib.parse.urlparse(entry).query)
         for key in ("id", "infohash", "content_id"):
@@ -112,12 +115,12 @@ def extract_infohash(entry):
             if values:
                 match = INFOHASH_RE.search(values[0])
                 if match:
-                    return match.group(0).lower()
+                    return (key, match.group(0).lower())
         return None
     if "/" not in entry:
         match = INFOHASH_RE.search(entry)
         if match:
-            return match.group(0).lower()
+            return ("id", match.group(0).lower())
     return None
 
 
@@ -128,13 +131,16 @@ def rewrite_playlist(text):
     replaces it per request with the host the client used, so the same
     playlist works from the LAN and from Tailscale at once.
     """
-    template = "http://%s:%s/ace/getstream?id=%%s" % (HOST_TOKEN, PUBLIC_PORT)
     lines = []
     rewritten = 0
     for line in text.splitlines():
-        infohash = extract_infohash(line)
-        if infohash:
-            lines.append(template % infohash)
+        extracted = extract_ace_selector(line)
+        if extracted:
+            selector, infohash = extracted
+            lines.append(
+                "http://%s:%s/ace/getstream?%s=%s"
+                % (HOST_TOKEN, PUBLIC_PORT, selector, infohash)
+            )
             rewritten += 1
         else:
             lines.append(line)

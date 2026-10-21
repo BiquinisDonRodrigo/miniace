@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# miniace/acestream container entrypoint.
+# miniace/outpace container entrypoint.
 #
 # Shares the gluetun network namespace (network_mode: service:gluetun):
 #   - resolves the P2P port announced by ProtonVPN through Gluetun and
-#     keeps the engine bound to it (see engine.sh)
+#     keeps the engine bound to it (see outpace.sh)
 #   - runs the IPNS->M3U playlist sync and the playlist HTTP server
 set -uo pipefail
 
-source /opt/miniace/engine.sh
+source /opt/miniace/outpace.sh
 
 engine_init || exit 1
 
